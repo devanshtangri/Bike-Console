@@ -28,6 +28,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   double _currentHeading = 0;
   bool _hasCenteredOnStartup = false;
 
+  bool _followUser = true;
+  bool _isProgrammaticCameraMove = false;
+  LatLng? _lastFollowCameraTarget;
+
   BitmapDescriptor? _currentLocationIcon;
   final List<LatLng> _routePoints = [];
 
@@ -87,11 +91,51 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     final target = LatLng(position.latitude, position.longitude);
 
-    await _mapController?.animateCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(target: target, zoom: 16, bearing: 0, tilt: 0),
-      ),
+    _followUser = true;
+    await _animateMapTo(target);
+  }
+
+  Future<void> _animateMapTo(LatLng target, {double zoom = 16}) async {
+    if (_mapController == null) return;
+
+    _isProgrammaticCameraMove = true;
+    _lastFollowCameraTarget = target;
+
+    try {
+      await _mapController!.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(target: target, zoom: zoom, bearing: 0, tilt: 0),
+        ),
+      );
+    } finally {
+      Future.delayed(const Duration(milliseconds: 350), () {
+        if (mounted) {
+          _isProgrammaticCameraMove = false;
+        }
+      });
+    }
+  }
+
+  Future<void> _maybeFollowUser(LatLng nextPoint) async {
+    if (!_followUser || _mapController == null) {
+      return;
+    }
+
+    if (_lastFollowCameraTarget == null) {
+      await _animateMapTo(nextPoint);
+      return;
+    }
+
+    final distance = Geolocator.distanceBetween(
+      _lastFollowCameraTarget!.latitude,
+      _lastFollowCameraTarget!.longitude,
+      nextPoint.latitude,
+      nextPoint.longitude,
     );
+
+    if (distance >= 18) {
+      await _animateMapTo(nextPoint);
+    }
   }
 
   Future<void> _startLocationTracking() async {
@@ -126,18 +170,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
           if (!_hasCenteredOnStartup && _mapController != null) {
             _hasCenteredOnStartup = true;
-
-            await _mapController!.animateCamera(
-              CameraUpdate.newCameraPosition(
-                CameraPosition(
-                  target: nextPoint,
-                  zoom: 16,
-                  bearing: 0,
-                  tilt: 0,
-                ),
-              ),
-            );
+            _followUser = true;
+            await _animateMapTo(nextPoint);
+            return;
           }
+
+          await _maybeFollowUser(nextPoint);
         });
   }
 
@@ -153,7 +191,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         icon:
             _currentLocationIcon ??
             BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
-        anchor: const Offset(0.5, 0.5),
+        anchor: const Offset(0.5, 0.67),
         rotation: _currentHeading,
         flat: true,
         zIndexInt: 10,
@@ -179,53 +217,44 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<BitmapDescriptor> _createCurrentLocationIcon() async {
-    const size = 48.0;
-    const center = Offset(size / 2, size / 2);
+    const logicalWidth = 24.0;
+    const logicalHeight = 36.0;
+    const pixelRatio = 4.0;
+
+    final imageWidth = (logicalWidth * pixelRatio).toInt();
+    final imageHeight = (logicalHeight * pixelRatio).toInt();
 
     final recorder = PictureRecorder();
     final canvas = Canvas(recorder);
 
-    final bodyPaint = Paint()
-      ..color = const Color(0xFF23C48E)
-      ..style = PaintingStyle.fill;
+    canvas.scale(pixelRatio, pixelRatio);
 
-    final pointerPath = Path()
-      ..moveTo(center.dx, 6)
-      ..cubicTo(
-        center.dx - 5,
-        center.dy - 2,
-        center.dx - 11,
-        center.dy + 9,
-        center.dx - 14,
-        center.dy + 18,
-      )
-      ..cubicTo(
-        center.dx - 6,
-        center.dy + 13,
-        center.dx + 6,
-        center.dy + 13,
-        center.dx + 14,
-        center.dy + 18,
-      )
-      ..cubicTo(
-        center.dx + 11,
-        center.dy + 9,
-        center.dx + 5,
-        center.dy - 2,
-        center.dx,
-        6,
-      )
+    final greenPaint = Paint()
+      ..color = const Color(0xFF23C48E)
+      ..style = PaintingStyle.fill
+      ..isAntiAlias = true
+      ..filterQuality = FilterQuality.high;
+
+    final trianglePath = Path()
+      ..moveTo(logicalWidth * 0.5, 0)
+      ..lineTo(logicalWidth * 0.933, logicalHeight * 0.5)
+      ..lineTo(logicalWidth * 0.067, logicalHeight * 0.5)
       ..close();
 
-    canvas.drawPath(pointerPath, bodyPaint);
+    final circleCenter = Offset(logicalWidth * 0.5, logicalHeight * 0.667);
+
+    final circleRadius = logicalWidth * 0.5;
+
+    canvas.drawCircle(circleCenter, circleRadius, greenPaint);
+    canvas.drawPath(trianglePath, greenPaint);
 
     final picture = recorder.endRecording();
-    final image = await picture.toImage(size.toInt(), size.toInt());
+    final image = await picture.toImage(imageWidth, imageHeight);
     final byteData = await image.toByteData(format: ImageByteFormat.png);
 
     final bytes = byteData!.buffer.asUint8List();
 
-    return BitmapDescriptor.bytes(bytes);
+    return BitmapDescriptor.bytes(bytes, imagePixelRatio: pixelRatio);
   }
 
   @override
@@ -310,20 +339,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               if (_currentLatLng != null &&
                                   !_hasCenteredOnStartup) {
                                 _hasCenteredOnStartup = true;
-
-                                await _mapController!.animateCamera(
-                                  CameraUpdate.newCameraPosition(
-                                    CameraPosition(
-                                      target: _currentLatLng!,
-                                      zoom: 16,
-                                      bearing: 0,
-                                      tilt: 0,
-                                    ),
-                                  ),
-                                );
+                                _followUser = true;
+                                await _animateMapTo(_currentLatLng!);
                               }
                             },
                             style: darkMapStyle,
+                            onCameraMoveStarted: () {
+                              if (!_isProgrammaticCameraMove) {
+                                _followUser = false;
+                              }
+                            },
                             myLocationEnabled: false,
                             myLocationButtonEnabled: false,
                             zoomControlsEnabled: false,
