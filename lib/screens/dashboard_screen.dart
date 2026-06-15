@@ -110,9 +110,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     children: [
                       Expanded(
                         child: DashboardStatCard(
-                          title: "TOTAL DISTANCE",
+                          title: "DISTANCE",
                           value:
                               "${bike.distance?.toStringAsFixed(2) ?? "0.00"} km",
+                          icon: Icons.route_outlined,
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -120,20 +121,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         child: DashboardStatCard(
                           title: "RPM",
                           value: "${bike.rpm ?? 0}",
+                          icon: Icons.sync_outlined,
                         ),
                       ),
                     ],
                   ),
 
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 12),
 
                   Row(
                     children: [
                       Expanded(
                         child: DashboardStatCard(
-                          title: "AVERAGE SPEED",
+                          title: "AVG SPEED",
                           value:
                               "${bike.avgSpeed?.toStringAsFixed(1) ?? "0.0"} km/h",
+                          icon: Icons.speed_outlined,
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -141,6 +144,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         child: DashboardStatCard(
                           title: "MAX SPEED",
                           value: "${bike.maxSpeed ?? 0} km/h",
+                          icon: Icons.trending_up_outlined,
                         ),
                       ),
                     ],
