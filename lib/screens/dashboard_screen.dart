@@ -5,6 +5,7 @@ import 'settings_screen.dart';
 import '../widgets/speed_console_panel.dart';
 import '../widgets/dashboard_stat_card.dart';
 import '../widgets/ride_control_bar.dart';
+import '../widgets/hex_settings_button.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -53,7 +54,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       color: Colors.white,
                     ),
                   ),
-                  GestureDetector(
+                  HexSettingsButton(
                     onTap: () {
                       Navigator.push(
                         context,
@@ -62,11 +63,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                       );
                     },
-                    child: const Icon(
-                      Icons.settings,
-                      color: Colors.white,
-                      size: 28,
-                    ),
                   ),
                 ],
               ),
