@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import '../bike_data.dart';
 
@@ -18,74 +20,98 @@ class SpeedConsolePanel extends StatelessWidget {
         alignment: Alignment.topCenter,
         children: [
           Positioned(
+            top: 8,
+            left: 12,
+            right: 12,
+            child: ClipPath(
+              clipper: DashboardPanelClipper(),
+              child: Container(
+                height: 132,
+                color: Colors.black.withValues(alpha: 0.42),
+              ),
+            ),
+          ),
+
+          Positioned(
             top: 0,
             left: 0,
             right: 0,
             child: ClipPath(
               clipper: DashboardPanelClipper(),
-              child: Container(
-                height: 145,
-                color: const Color(0xFF181818),
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 30),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Center(
-                          child: Icon(
-                            Icons.arrow_back,
-                            color: bike.leftIndicator
-                                ? Colors.greenAccent
-                                : Colors.white24,
-                            size: 36,
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+                child: Container(
+                  height: 145,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF181818).withValues(alpha: 0.72),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.14),
+                      width: 1,
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 30),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Center(
+                            child: _IndicatorIcon(
+                              icon: Icons.arrow_back,
+                              isActive: bike.leftIndicator,
+                            ),
                           ),
                         ),
-                      ),
 
-                      Container(width: 1, height: 56, color: Colors.white10),
+                        Container(
+                          width: 1,
+                          height: 56,
+                          color: Colors.white.withValues(alpha: 0.08),
+                        ),
 
-                      Expanded(
-                        flex: 2,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              "${bike.speed ?? 0}",
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 54,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-
-                            Transform.translate(
-                              offset: const Offset(0, -14),
-                              child: const Text(
-                                "km/h",
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 14,
+                        Expanded(
+                          flex: 2,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                "${bike.speed ?? 0}",
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 54,
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                      ),
 
-                      Container(width: 1, height: 56, color: Colors.white10),
-
-                      Expanded(
-                        child: Center(
-                          child: Icon(
-                            Icons.arrow_forward,
-                            color: bike.rightIndicator
-                                ? Colors.greenAccent
-                                : Colors.white24,
-                            size: 36,
+                              Transform.translate(
+                                offset: const Offset(0, -14),
+                                child: const Text(
+                                  "km/h",
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ),
-                    ],
+
+                        Container(
+                          width: 1,
+                          height: 56,
+                          color: Colors.white.withValues(alpha: 0.08),
+                        ),
+
+                        Expanded(
+                          child: Center(
+                            child: _IndicatorIcon(
+                              icon: Icons.arrow_forward,
+                              isActive: bike.rightIndicator,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -98,10 +124,45 @@ class SpeedConsolePanel extends StatelessWidget {
               Icons.warning_amber_rounded,
               color: bike.hazard ? Colors.redAccent : Colors.white24,
               size: 30,
+              shadows: bike.hazard
+                  ? [
+                      Shadow(
+                        color: Colors.redAccent.withValues(alpha: 0.75),
+                        blurRadius: 14,
+                      ),
+                    ]
+                  : null,
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _IndicatorIcon extends StatelessWidget {
+  final IconData icon;
+  final bool isActive;
+
+  const _IndicatorIcon({
+    required this.icon,
+    required this.isActive,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Icon(
+      icon,
+      color: isActive ? Colors.greenAccent : Colors.white24,
+      size: 36,
+      shadows: isActive
+          ? [
+              Shadow(
+                color: Colors.greenAccent.withValues(alpha: 0.75),
+                blurRadius: 16,
+              ),
+            ]
+          : null,
     );
   }
 }
