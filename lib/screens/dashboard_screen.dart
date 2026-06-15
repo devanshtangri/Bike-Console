@@ -4,6 +4,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'settings_screen.dart';
 import '../widgets/speed_console_panel.dart';
 import '../widgets/dashboard_stat_card.dart';
+import '../widgets/ride_control_bar.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -151,55 +152,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  Container(
-                    height: 78,
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF181818),
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.timer_outlined, color: Colors.white),
-
-                        const SizedBox(width: 12),
-
-                        const Text(
-                          "2:15:02",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 28,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-
-                        const Spacer(),
-
-                        Container(width: 1, height: 40, color: Colors.white10),
-
-                        const SizedBox(width: 20),
-
-                        Container(
-                          width: screenWidth * 0.38,
-                          height: 54,
-                          decoration: BoxDecoration(
-                            color: Colors.greenAccent,
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: const Center(
-                            child: Text(
-                              "Pause",
-                              style: TextStyle(
-                                color: Colors.black,
-                                fontSize: 20,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  RideControlBar(screenWidth: screenWidth),
                 ],
               ),
             ),
