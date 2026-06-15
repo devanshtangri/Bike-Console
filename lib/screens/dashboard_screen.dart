@@ -9,6 +9,7 @@ import '../widgets/hex_settings_button.dart';
 import '../map_styles/dark_map_style.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:ui';
+import 'dart:async';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -19,7 +20,16 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   late final VoidCallback bikeListener;
+
   GoogleMapController? _mapController;
+  StreamSubscription<Position>? _positionSubscription;
+
+  LatLng? _currentLatLng;
+  double _currentHeading = 0;
+  bool _hasCenteredOnStartup = false;
+
+  BitmapDescriptor? _currentLocationIcon;
+  final List<LatLng> _routePoints = [];
 
   @override
   void initState() {
@@ -32,20 +42,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
     };
 
     BikeData.instance.addListener(bikeListener);
+    _startLocationTracking();
   }
 
   @override
   void dispose() {
     BikeData.instance.removeListener(bikeListener);
+    _positionSubscription?.cancel();
     _mapController?.dispose();
     super.dispose();
   }
 
-  Future<void> _centerOnCurrentLocation() async {
+  Future<bool> _ensureLocationPermission() async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
 
     if (!serviceEnabled) {
-      return;
+      return false;
     }
 
     LocationPermission permission = await Geolocator.checkPermission();
@@ -56,6 +68,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     if (permission == LocationPermission.denied ||
         permission == LocationPermission.deniedForever) {
+      return false;
+    }
+
+    return true;
+  }
+
+  Future<void> _centerOnCurrentLocation() async {
+    final hasPermission = await _ensureLocationPermission();
+
+    if (!hasPermission) {
       return;
     }
 
@@ -70,6 +92,140 @@ class _DashboardScreenState extends State<DashboardScreen> {
         CameraPosition(target: target, zoom: 16, bearing: 0, tilt: 0),
       ),
     );
+  }
+
+  Future<void> _startLocationTracking() async {
+    final hasPermission = await _ensureLocationPermission();
+
+    if (!hasPermission) {
+      return;
+    }
+
+    _currentLocationIcon = await _createCurrentLocationIcon();
+
+    _positionSubscription =
+        Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 2,
+          ),
+        ).listen((position) async {
+          final nextPoint = LatLng(position.latitude, position.longitude);
+
+          setState(() {
+            _currentLatLng = nextPoint;
+
+            if (position.heading >= 0) {
+              _currentHeading = position.heading;
+            }
+
+            if (_routePoints.isEmpty || _routePoints.last != nextPoint) {
+              _routePoints.add(nextPoint);
+            }
+          });
+
+          if (!_hasCenteredOnStartup && _mapController != null) {
+            _hasCenteredOnStartup = true;
+
+            await _mapController!.animateCamera(
+              CameraUpdate.newCameraPosition(
+                CameraPosition(
+                  target: nextPoint,
+                  zoom: 16,
+                  bearing: 0,
+                  tilt: 0,
+                ),
+              ),
+            );
+          }
+        });
+  }
+
+  Set<Marker> _buildCurrentLocationMarkers() {
+    if (_currentLatLng == null) {
+      return {};
+    }
+
+    return {
+      Marker(
+        markerId: const MarkerId("current_location"),
+        position: _currentLatLng!,
+        icon:
+            _currentLocationIcon ??
+            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+        anchor: const Offset(0.5, 0.5),
+        rotation: _currentHeading,
+        flat: true,
+        zIndexInt: 10,
+      ),
+    };
+  }
+
+  Set<Polyline> _buildRoutePolylines() {
+    if (_routePoints.length < 2) {
+      return {};
+    }
+
+    return {
+      Polyline(
+        polylineId: const PolylineId("ride_trail"),
+        points: _routePoints,
+        color: const Color(0xFF23C48E),
+        width: 5,
+        zIndex: 5,
+        geodesic: true,
+      ),
+    };
+  }
+
+  Future<BitmapDescriptor> _createCurrentLocationIcon() async {
+    const size = 48.0;
+    const center = Offset(size / 2, size / 2);
+
+    final recorder = PictureRecorder();
+    final canvas = Canvas(recorder);
+
+    final bodyPaint = Paint()
+      ..color = const Color(0xFF23C48E)
+      ..style = PaintingStyle.fill;
+
+    final pointerPath = Path()
+      ..moveTo(center.dx, 6)
+      ..cubicTo(
+        center.dx - 5,
+        center.dy - 2,
+        center.dx - 11,
+        center.dy + 9,
+        center.dx - 14,
+        center.dy + 18,
+      )
+      ..cubicTo(
+        center.dx - 6,
+        center.dy + 13,
+        center.dx + 6,
+        center.dy + 13,
+        center.dx + 14,
+        center.dy + 18,
+      )
+      ..cubicTo(
+        center.dx + 11,
+        center.dy + 9,
+        center.dx + 5,
+        center.dy - 2,
+        center.dx,
+        6,
+      )
+      ..close();
+
+    canvas.drawPath(pointerPath, bodyPaint);
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(size.toInt(), size.toInt());
+    final byteData = await image.toByteData(format: ImageByteFormat.png);
+
+    final bytes = byteData!.buffer.asUint8List();
+
+    return BitmapDescriptor.bytes(bytes);
   }
 
   @override
@@ -148,17 +304,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               target: LatLng(28.6139, 77.2090),
                               zoom: 15,
                             ),
-                            onMapCreated: (controller) {
+                            onMapCreated: (controller) async {
                               _mapController = controller;
-                              controller.setMapStyle(darkMapStyle);
+
+                              if (_currentLatLng != null &&
+                                  !_hasCenteredOnStartup) {
+                                _hasCenteredOnStartup = true;
+
+                                await _mapController!.animateCamera(
+                                  CameraUpdate.newCameraPosition(
+                                    CameraPosition(
+                                      target: _currentLatLng!,
+                                      zoom: 16,
+                                      bearing: 0,
+                                      tilt: 0,
+                                    ),
+                                  ),
+                                );
+                              }
                             },
-                            myLocationEnabled: true,
+                            style: darkMapStyle,
+                            myLocationEnabled: false,
                             myLocationButtonEnabled: false,
                             zoomControlsEnabled: false,
                             compassEnabled: false,
                             rotateGesturesEnabled: false,
                             tiltGesturesEnabled: false,
                             padding: const EdgeInsets.only(bottom: 115),
+                            markers: _buildCurrentLocationMarkers(),
+                            polylines: _buildRoutePolylines(),
                           ),
                         ),
                       ),
