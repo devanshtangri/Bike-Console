@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 
 class RideControlBar extends StatefulWidget {
@@ -59,41 +60,54 @@ class _RideControlBarState extends State<RideControlBar> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 78,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      decoration: BoxDecoration(
-        color: const Color(0xFF181818),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.06),
-          width: 1,
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          height: 78,
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          decoration: BoxDecoration(
+            color: const Color(0xFF181818).withValues(alpha: 0.72),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.12),
+              width: 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.timer_outlined, color: Colors.white),
+
+              const SizedBox(width: 12),
+
+              const Text(
+                "2:15:02",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+
+              const SizedBox(width: 16),
+
+              Expanded(
+                child: SizedBox(
+                  height: 54,
+                  child: isPaused ? _pausedControls() : _pauseButton(),
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.timer_outlined, color: Colors.white),
-
-          const SizedBox(width: 12),
-
-          const Text(
-            "2:15:02",
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 28,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-
-          const SizedBox(width: 16),
-
-          Expanded(
-            child: SizedBox(
-              height: 54,
-              child: isPaused ? _pausedControls() : _pauseButton(),
-            ),
-          ),
-        ],
       ),
     );
   }

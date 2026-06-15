@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-
+import 'package:google_fonts/google_fonts.dart';
 import 'ble_service.dart';
 import 'screens/dashboard_screen.dart';
 
@@ -19,7 +19,14 @@ class BikeConsoleApp extends StatelessWidget {
     return MaterialApp(
       title: 'Bike Console',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark(useMaterial3: true),
+      theme: ThemeData(
+        fontFamily: GoogleFonts.inter().fontFamily,
+        scaffoldBackgroundColor: Colors.black,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.greenAccent,
+          brightness: Brightness.dark,
+        ),
+      ),
       home: const DashboardScreen(),
     );
   }
