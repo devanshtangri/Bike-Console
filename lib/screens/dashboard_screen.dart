@@ -358,11 +358,13 @@ class DashboardPanelClipper extends CustomClipper<Path> {
       bodyBottom,
     );
 
-    const curve = 10.0;
+    const curve = 0;
 
     path.lineTo(notchTopRight + curve, bodyBottom);
 
-    path.quadraticBezierTo(
+    path.cubicTo(
+      notchTopRight,
+      bodyBottom,
       notchTopRight,
       bodyBottom,
       notchTopRight - curve,
@@ -371,7 +373,9 @@ class DashboardPanelClipper extends CustomClipper<Path> {
 
     path.lineTo(notchBottomRight + curve, size.height - curve);
 
-    path.quadraticBezierTo(
+    path.cubicTo(
+      notchBottomRight,
+      size.height,
       notchBottomRight,
       size.height,
       notchBottomRight - curve,
@@ -380,7 +384,9 @@ class DashboardPanelClipper extends CustomClipper<Path> {
 
     path.lineTo(notchBottomLeft + curve, size.height);
 
-    path.quadraticBezierTo(
+    path.cubicTo(
+      notchBottomLeft,
+      size.height,
       notchBottomLeft,
       size.height,
       notchBottomLeft - curve,
@@ -389,7 +395,9 @@ class DashboardPanelClipper extends CustomClipper<Path> {
 
     path.lineTo(notchTopLeft + curve, bodyBottom + curve);
 
-    path.quadraticBezierTo(
+    path.cubicTo(
+      notchTopLeft,
+      bodyBottom,
       notchTopLeft,
       bodyBottom,
       notchTopLeft - curve,
