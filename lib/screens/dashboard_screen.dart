@@ -7,6 +7,8 @@ import '../widgets/dashboard_stat_card.dart';
 import '../widgets/ride_control_bar.dart';
 import '../widgets/hex_settings_button.dart';
 import '../map_styles/dark_map_style.dart';
+import 'package:geolocator/geolocator.dart';
+import 'dart:ui';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -17,6 +19,7 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   late final VoidCallback bikeListener;
+  GoogleMapController? _mapController;
 
   @override
   void initState() {
@@ -29,6 +32,44 @@ class _DashboardScreenState extends State<DashboardScreen> {
     };
 
     BikeData.instance.addListener(bikeListener);
+  }
+
+  @override
+  void dispose() {
+    BikeData.instance.removeListener(bikeListener);
+    _mapController?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _centerOnCurrentLocation() async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+
+    if (!serviceEnabled) {
+      return;
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      return;
+    }
+
+    final position = await Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+    );
+
+    final target = LatLng(position.latitude, position.longitude);
+
+    await _mapController?.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(target: target, zoom: 16, bearing: 0, tilt: 0),
+      ),
+    );
   }
 
   @override
@@ -108,10 +149,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               zoom: 15,
                             ),
                             onMapCreated: (controller) {
+                              _mapController = controller;
                               controller.setMapStyle(darkMapStyle);
                             },
                             myLocationEnabled: true,
-                            myLocationButtonEnabled: true,
+                            myLocationButtonEnabled: false,
                             zoomControlsEnabled: false,
                             compassEnabled: false,
                             rotateGesturesEnabled: false,
@@ -120,7 +162,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                         ),
                       ),
-
+                      Positioned(
+                        top: 14,
+                        right: 26,
+                        child: GestureDetector(
+                          onTap: _centerOnCurrentLocation,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(18),
+                            child: BackdropFilter(
+                              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                              child: Container(
+                                width: 48,
+                                height: 48,
+                                decoration: BoxDecoration(
+                                  color: const Color(
+                                    0xFF181818,
+                                  ).withValues(alpha: 0.72),
+                                  borderRadius: BorderRadius.circular(18),
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.12),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: const Icon(
+                                  Icons.my_location_rounded,
+                                  color: Colors.greenAccent,
+                                  size: 25,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                       Positioned(
                         top: mapHeight - 135,
                         left: 12,
