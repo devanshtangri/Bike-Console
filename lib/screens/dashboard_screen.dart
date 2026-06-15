@@ -152,7 +152,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  RideControlBar(screenWidth: screenWidth),
+                  const RideControlBar(),
                 ],
               ),
             ),

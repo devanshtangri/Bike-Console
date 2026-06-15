@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 
 class RideControlBar extends StatefulWidget {
-  final double screenWidth;
-
-  const RideControlBar({super.key, required this.screenWidth});
+  const RideControlBar({super.key});
 
   @override
   State<RideControlBar> createState() => _RideControlBarState();
@@ -87,14 +85,13 @@ class _RideControlBarState extends State<RideControlBar> {
             ),
           ),
 
-          const Spacer(),
-
           const SizedBox(width: 16),
 
-          SizedBox(
-            width: widget.screenWidth * 0.45,
-            height: 54,
-            child: isPaused ? _pausedControls() : _pauseButton(),
+          Expanded(
+            child: SizedBox(
+              height: 54,
+              child: isPaused ? _pausedControls() : _pauseButton(),
+            ),
           ),
         ],
       ),
