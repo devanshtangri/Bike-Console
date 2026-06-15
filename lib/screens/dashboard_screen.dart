@@ -119,7 +119,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ],
                   ),
 
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 4),
 
                   Row(
                     children: [
@@ -264,7 +264,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Icon(
             Icons.warning_amber_rounded,
             color: bike.hazard ? Colors.redAccent : Colors.white24,
-            size: 34,
+            size: 30,
           ),
         ],
       ),
