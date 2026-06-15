@@ -32,8 +32,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
 
-    print("Screen width: $screenWidth");
-
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
@@ -199,72 +197,103 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _speedPanel(BikeData bike) {
-    return Container(
-      height: 145,
-      decoration: BoxDecoration(
-        color: const Color(0xFF181818),
-        borderRadius: BorderRadius.circular(32),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+    return SizedBox(
+      height: 180,
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.topCenter,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Center(
-                  child: Icon(
-                    Icons.arrow_back,
-                    color: bike.leftIndicator
-                        ? Colors.greenAccent
-                        : Colors.white24,
-                    size: 36,
-                  ),
-                ),
-              ),
-
-              Container(width: 1, height: 60, color: Colors.white10),
-
-              Expanded(
-                flex: 2,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: ClipPath(
+              clipper: DashboardPanelClipper(),
+              child: Container(
+                height: 175,
+                color: const Color(0xFF181818),
+                child: Row(
                   children: [
-                    Text(
-                      "${bike.speed ?? 0}",
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 60,
-                        fontWeight: FontWeight.w700,
+                    Expanded(
+                      child: Center(
+                        child: Icon(
+                          Icons.arrow_back,
+                          color: bike.leftIndicator
+                              ? Colors.greenAccent
+                              : Colors.white24,
+                          size: 36,
+                        ),
                       ),
                     ),
-                    const Text(
-                      "km/h",
-                      style: TextStyle(color: Colors.white70, fontSize: 14),
+
+                    Container(width: 1, height: 60, color: Colors.white10),
+
+                    Expanded(
+                      flex: 2,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            "${bike.speed ?? 0}",
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 60,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+
+                          Transform.translate(
+                            offset: const Offset(0, -16),
+                            child: const Text(
+                              "km/h",
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    Container(width: 1, height: 60, color: Colors.white10),
+
+                    Expanded(
+                      child: Center(
+                        child: Icon(
+                          Icons.arrow_forward,
+                          color: bike.rightIndicator
+                              ? Colors.greenAccent
+                              : Colors.white24,
+                          size: 36,
+                        ),
+                      ),
                     ),
                   ],
                 ),
               ),
+            ),
+          ),
 
-              Container(width: 1, height: 60, color: Colors.white10),
-
-              Expanded(
-                child: Center(
-                  child: Icon(
-                    Icons.arrow_forward,
-                    color: bike.rightIndicator
-                        ? Colors.greenAccent
-                        : Colors.white24,
-                    size: 36,
-                  ),
+          Positioned(
+            bottom: 22,
+            child: Container(
+              width: 54,
+              height: 54,
+              decoration: BoxDecoration(
+                color: const Color(0xFF111111),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: bike.hazard ? Colors.redAccent : Colors.white12,
+                  width: 1.5,
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Icon(
-            Icons.warning_amber_rounded,
-            color: bike.hazard ? Colors.redAccent : Colors.white24,
-            size: 30,
+              child: Icon(
+                Icons.warning_amber_rounded,
+                color: bike.hazard ? Colors.redAccent : Colors.white38,
+                size: 28,
+              ),
+            ),
           ),
         ],
       ),
@@ -299,4 +328,85 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     );
   }
+}
+
+class DashboardPanelClipper extends CustomClipper<Path> {
+  @override
+  Path getClip(Size size) {
+    const radius = 32.0;
+    const notchDepth = 40.0;
+
+    final bodyBottom = size.height - notchDepth;
+
+    final notchTopLeft = size.width * 0.22;
+    final notchBottomLeft = size.width * 0.34;
+    final notchBottomRight = size.width * 0.66;
+    final notchTopRight = size.width * 0.78;
+
+    final path = Path();
+
+    path.moveTo(radius, 0);
+
+    path.lineTo(size.width - radius, 0);
+    path.quadraticBezierTo(size.width, 0, size.width, radius);
+
+    path.lineTo(size.width, bodyBottom - radius);
+    path.quadraticBezierTo(
+      size.width,
+      bodyBottom,
+      size.width - radius,
+      bodyBottom,
+    );
+
+    const curve = 10.0;
+
+    path.lineTo(notchTopRight + curve, bodyBottom);
+
+    path.quadraticBezierTo(
+      notchTopRight,
+      bodyBottom,
+      notchTopRight - curve,
+      bodyBottom + curve,
+    );
+
+    path.lineTo(notchBottomRight + curve, size.height - curve);
+
+    path.quadraticBezierTo(
+      notchBottomRight,
+      size.height,
+      notchBottomRight - curve,
+      size.height,
+    );
+
+    path.lineTo(notchBottomLeft + curve, size.height);
+
+    path.quadraticBezierTo(
+      notchBottomLeft,
+      size.height,
+      notchBottomLeft - curve,
+      size.height - curve,
+    );
+
+    path.lineTo(notchTopLeft + curve, bodyBottom + curve);
+
+    path.quadraticBezierTo(
+      notchTopLeft,
+      bodyBottom,
+      notchTopLeft - curve,
+      bodyBottom,
+    );
+
+    path.lineTo(radius, bodyBottom);
+    path.quadraticBezierTo(0, bodyBottom, 0, bodyBottom - radius);
+
+    path.lineTo(0, radius);
+    path.quadraticBezierTo(0, 0, radius, 0);
+
+    path.close();
+
+    return path;
+  }
+
+  @override
+  bool shouldReclip(CustomClipper<Path> oldClipper) => false;
 }
