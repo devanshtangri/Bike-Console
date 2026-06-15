@@ -6,6 +6,7 @@ import '../widgets/speed_console_panel.dart';
 import '../widgets/dashboard_stat_card.dart';
 import '../widgets/ride_control_bar.dart';
 import '../widgets/hex_settings_button.dart';
+import '../map_styles/dark_map_style.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -102,13 +103,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             top: Radius.circular(24),
                           ),
                           child: GoogleMap(
-                            initialCameraPosition: CameraPosition(
+                            initialCameraPosition: const CameraPosition(
                               target: LatLng(28.6139, 77.2090),
                               zoom: 15,
                             ),
+                            onMapCreated: (controller) {
+                              controller.setMapStyle(darkMapStyle);
+                            },
                             myLocationEnabled: true,
                             myLocationButtonEnabled: true,
                             zoomControlsEnabled: false,
+                            compassEnabled: false,
+                            rotateGesturesEnabled: false,
+                            tiltGesturesEnabled: false,
                             padding: const EdgeInsets.only(bottom: 115),
                           ),
                         ),
