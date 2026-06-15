@@ -21,8 +21,8 @@ class DashboardStatCard extends StatelessWidget {
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
         child: Container(
-          height: 110,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          height: 96,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
             color: const Color(0xFF181818).withValues(alpha: 0.72),
             borderRadius: BorderRadius.circular(24),
@@ -48,7 +48,7 @@ class DashboardStatCard extends StatelessWidget {
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 28,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
 

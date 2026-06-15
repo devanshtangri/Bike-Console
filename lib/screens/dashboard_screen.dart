@@ -34,7 +34,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     final bike = BikeData.instance;
     final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -54,6 +53,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       color: Colors.white,
                     ),
                   ),
+
                   HexSettingsButton(
                     onTap: () {
                       Navigator.push(
@@ -68,88 +68,148 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ),
 
-            SizedBox(
-              height: screenHeight * 0.42,
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Positioned.fill(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(24),
-                      child: const GoogleMap(
-                        initialCameraPosition: CameraPosition(
-                          target: LatLng(28.6139, 77.2090),
-                          zoom: 15,
-                        ),
-                        myLocationEnabled: true,
-                        myLocationButtonEnabled: true,
-                        zoomControlsEnabled: false,
-                      ),
-                    ),
-                  ),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final bodyHeight = constraints.maxHeight;
 
-                  Positioned(
-                    left: screenWidth * 0.03,
-                    right: screenWidth * 0.03,
-                    bottom: 10,
-                    child: SpeedConsolePanel(bike: bike),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 28),
+                  const rideBottom = 16.0;
+                  const rideHeight = 78.0;
+                  const gapRideToStats = 16.0;
 
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: screenWidth * 0.04),
-              child: Column(
-                children: [
-                  Row(
+                  const statCardHeight = 96.0;
+                  const statRowGap = 12.0;
+                  const statsHeight = (statCardHeight * 2) + statRowGap;
+
+                  const gapMapToStats = 18.0;
+                  const speedPanelHeight = 150.0;
+
+                  final statsBottom = rideBottom + rideHeight + gapRideToStats;
+
+                  final mapHeight =
+                      bodyHeight - statsBottom - statsHeight - gapMapToStats;
+
+                  return Stack(
+                    clipBehavior: Clip.none,
                     children: [
-                      Expanded(
-                        child: DashboardStatCard(
-                          title: "DISTANCE",
-                          value:
-                              "${bike.distance?.toStringAsFixed(2) ?? "0.00"} km",
-                          icon: Icons.route_outlined,
+                      Positioned(
+                        top: 0,
+                        left: 12,
+                        right: 12,
+                        height: mapHeight,
+                        child: ClipRRect(
+                          borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(24),
+                          ),
+                          child: GoogleMap(
+                            initialCameraPosition: CameraPosition(
+                              target: LatLng(28.6139, 77.2090),
+                              zoom: 15,
+                            ),
+                            myLocationEnabled: true,
+                            myLocationButtonEnabled: true,
+                            zoomControlsEnabled: false,
+                            padding: const EdgeInsets.only(bottom: 115),
+                          ),
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: DashboardStatCard(
-                          title: "RPM",
-                          value: "${bike.rpm ?? 0}",
-                          icon: Icons.sync_outlined,
+
+                      Positioned(
+                        top: mapHeight - 135,
+                        left: 12,
+                        right: 12,
+                        height: 135,
+                        child: IgnorePointer(
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.black.withValues(alpha: 0.0),
+                                  Colors.black.withValues(alpha: 0.55),
+                                  Colors.black,
+                                ],
+                              ),
+                            ),
+                          ),
                         ),
+                      ),
+
+                      Positioned(
+                        left: screenWidth * 0.03,
+                        right: screenWidth * 0.03,
+                        top: mapHeight - speedPanelHeight,
+                        child: SpeedConsolePanel(bike: bike),
+                      ),
+
+                      Positioned(
+                        left: screenWidth * 0.04,
+                        right: screenWidth * 0.04,
+                        bottom: statsBottom,
+                        height: statsHeight,
+                        child: Column(
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: DashboardStatCard(
+                                    title: "DISTANCE",
+                                    value:
+                                        "${bike.distance?.toStringAsFixed(2) ?? "0.00"} km",
+                                    icon: Icons.route_outlined,
+                                  ),
+                                ),
+
+                                const SizedBox(width: 12),
+
+                                Expanded(
+                                  child: DashboardStatCard(
+                                    title: "RPM",
+                                    value: "${bike.rpm ?? 0}",
+                                    icon: Icons.rotate_right_outlined,
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            const SizedBox(height: statRowGap),
+
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: DashboardStatCard(
+                                    title: "AVG SPEED",
+                                    value:
+                                        "${bike.avgSpeed?.toStringAsFixed(1) ?? "0.0"} km/h",
+                                    icon: Icons.speed_outlined,
+                                  ),
+                                ),
+
+                                const SizedBox(width: 12),
+
+                                Expanded(
+                                  child: DashboardStatCard(
+                                    title: "MAX SPEED",
+                                    value: "${bike.maxSpeed ?? 0} km/h",
+                                    icon: Icons.trending_up_outlined,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      Positioned(
+                        left: screenWidth * 0.04,
+                        right: screenWidth * 0.04,
+                        bottom: rideBottom,
+                        child: const RideControlBar(),
                       ),
                     ],
-                  ),
-
-                  const SizedBox(height: 12),
-
-                  Row(
-                    children: [
-                      Expanded(
-                        child: DashboardStatCard(
-                          title: "AVG SPEED",
-                          value:
-                              "${bike.avgSpeed?.toStringAsFixed(1) ?? "0.0"} km/h",
-                          icon: Icons.speed_outlined,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: DashboardStatCard(
-                          title: "MAX SPEED",
-                          value: "${bike.maxSpeed ?? 0} km/h",
-                          icon: Icons.trending_up_outlined,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-
-                  const RideControlBar(),
-                ],
+                  );
+                },
               ),
             ),
           ],
