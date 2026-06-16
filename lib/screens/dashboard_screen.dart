@@ -75,6 +75,52 @@ class _DashboardScreenState extends State<DashboardScreen>
     setState(() {});
   }
 
+  bool _isBikeDeviceConnected() {
+    final status = BikeData.instance.status.toLowerCase();
+
+    return status.contains("connected") && !status.contains("disconnected");
+  }
+
+  Widget _buildDeviceConnectedBadge() {
+    final isConnected = _isBikeDeviceConnected();
+
+    return IgnorePointer(
+      child: AnimatedScale(
+        scale: isConnected ? 1 : 0.86,
+        duration: const Duration(milliseconds: 360),
+        curve: Curves.easeOutCubic,
+        child: AnimatedOpacity(
+          opacity: isConnected ? 1 : 0,
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+              child: Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF181818).withValues(alpha: 0.72),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.12),
+                    width: 1,
+                  ),
+                ),
+                child: Icon(
+                  Icons.memory_rounded,
+                  color: AppColors.premiumGreen,
+                  size: 25,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
@@ -178,6 +224,11 @@ class _DashboardScreenState extends State<DashboardScreen>
                             polylines: _mapTrackingController.polylines,
                           ),
                         ),
+                      ),
+                      Positioned(
+                        top: 14,
+                        left: 26,
+                        child: _buildDeviceConnectedBadge(),
                       ),
                       Positioned(
                         top: 14,
