@@ -17,6 +17,7 @@ class _RideControlBarState extends State<RideControlBar> {
   RideControlState _rideState = RideControlState.stopped;
 
   bool get _isStopped => _rideState == RideControlState.stopped;
+  bool get _isRunning => _rideState == RideControlState.running;
   bool get _isPaused => _rideState == RideControlState.paused;
 
   Future<void> _showStopConfirmation() async {
@@ -148,173 +149,161 @@ class _RideControlBarState extends State<RideControlBar> {
               width: _isStopped ? 0 : gapWidth,
             ),
 
-            Expanded(
-              child: ClipRect(
-                child: SizedBox(
-                  height: 54,
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 320),
-                    reverseDuration: const Duration(milliseconds: 240),
-                    switchInCurve: Curves.easeOutCubic,
-                    switchOutCurve: Curves.easeInCubic,
-                    transitionBuilder: (child, animation) {
-                      return FadeTransition(opacity: animation, child: child);
-                    },
-                    child: _isPaused ? _pausedControls() : _primaryRideButton(),
-                  ),
-                ),
-              ),
-            ),
+            Expanded(child: SizedBox(height: 54, child: _rideActionButton())),
           ],
         );
       },
     );
   }
 
-  Widget _primaryRideButton() {
+  Widget _rideActionButton() {
     final isStart = _isStopped;
+    final isPaused = _isPaused;
 
-    return GestureDetector(
-      key: ValueKey(isStart ? "start_button" : "pause_button"),
-      onTap: () {
-        setState(() {
-          _rideState = isStart
-              ? RideControlState.running
-              : RideControlState.paused;
-        });
-      },
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 620),
-        curve: Curves.easeOutCubic,
+        curve: Curves.easeInOutCubic,
         decoration: BoxDecoration(
-          color: isStart ? AppColors.premiumGreen : const Color(0xFFFFC928),
+          color: isPaused || isStart
+              ? AppColors.premiumGreen
+              : const Color(0xFFFFC928),
           borderRadius: BorderRadius.circular(12),
         ),
-        child: Center(
-          child: ClipRect(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 320),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeInCubic,
-                transitionBuilder: (child, animation) {
-                  return FadeTransition(
-                    opacity: animation,
-                    child: ScaleTransition(
-                      scale: Tween<double>(
-                        begin: 0.96,
-                        end: 1.0,
-                      ).animate(animation),
-                      child: child,
-                    ),
-                  );
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  setState(() {
+                    if (_isStopped) {
+                      _rideState = RideControlState.running;
+                    } else if (_isRunning) {
+                      _rideState = RideControlState.paused;
+                    } else {
+                      _rideState = RideControlState.running;
+                    }
+                  });
                 },
-                child: Row(
-                  key: ValueKey(isStart ? "start_content" : "pause_content"),
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      isStart ? Icons.play_arrow_rounded : Icons.pause_rounded,
-                      color: Colors.black,
-                      size: isStart ? 28 : 24,
-                    ),
-                    SizedBox(width: isStart ? 8 : 6),
-                    Text(
-                      isStart ? "Start" : "Pause",
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: isStart ? 21 : 20,
-                        fontWeight: isStart ? FontWeight.w700 : FontWeight.w600,
+                child: AnimatedPadding(
+                  duration: const Duration(milliseconds: 620),
+                  curve: Curves.easeInOutCubic,
+                  padding: EdgeInsets.only(
+                    left: isPaused ? 8 : 0,
+                    right: isPaused ? 70 : 0,
+                  ),
+                  child: Center(
+                    child: ClipRect(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 320),
+                          reverseDuration: const Duration(milliseconds: 240),
+                          switchInCurve: Curves.easeOutCubic,
+                          switchOutCurve: Curves.easeInCubic,
+                          transitionBuilder: (child, animation) {
+                            return FadeTransition(
+                              opacity: animation,
+                              child: ScaleTransition(
+                                scale: Tween<double>(
+                                  begin: 0.96,
+                                  end: 1.0,
+                                ).animate(animation),
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: _rideActionContent(),
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _pausedControls() {
-    return AnimatedContainer(
-      key: const ValueKey("paused_controls"),
-      duration: const Duration(milliseconds: 360),
-      curve: Curves.easeOutCubic,
-      decoration: BoxDecoration(
-        color: AppColors.premiumGreen,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 7,
-            child: GestureDetector(
-              onTap: () {
-                setState(() {
-                  _rideState = RideControlState.running;
-                });
-              },
-              child: const Center(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.play_arrow_rounded,
-                      color: Colors.black,
-                      size: 24,
-                    ),
-                    SizedBox(width: 4),
-                    Text(
-                      "Resume",
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          AnimatedOpacity(
-            opacity: _isPaused ? 1 : 0,
-            duration: const Duration(milliseconds: 420),
-            child: Container(width: 1, height: 32, color: Colors.black26),
-          ),
-
-          Expanded(
-            flex: 3,
-            child: GestureDetector(
-              onTap: _showStopConfirmation,
-              child: Center(
-                child: AnimatedScale(
-                  scale: _isPaused ? 1 : 0.85,
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeOutBack,
-                  child: Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: Colors.redAccent,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(
-                      Icons.stop_rounded,
-                      color: Colors.white,
-                      size: 24,
                     ),
                   ),
                 ),
               ),
             ),
-          ),
-        ],
+
+            Positioned(
+              top: 11,
+              bottom: 11,
+              right: 58,
+              child: AnimatedOpacity(
+                opacity: isPaused ? 1 : 0,
+                duration: const Duration(milliseconds: 520),
+                curve: Curves.easeInOutCubic,
+                child: Container(width: 1, color: Colors.black26),
+              ),
+            ),
+
+            Positioned(
+              top: 8,
+              right: 10,
+              child: IgnorePointer(
+                ignoring: !isPaused,
+                child: AnimatedOpacity(
+                  opacity: isPaused ? 1 : 0,
+                  duration: const Duration(milliseconds: 520),
+                  curve: Curves.easeInOutCubic,
+                  child: AnimatedScale(
+                    scale: isPaused ? 1 : 0.82,
+                    duration: const Duration(milliseconds: 560),
+                    curve: Curves.easeOutCubic,
+                    child: GestureDetector(
+                      onTap: _showStopConfirmation,
+                      child: Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: Colors.redAccent,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.stop_rounded,
+                          color: Colors.white,
+                          size: 24,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _rideActionContent() {
+    final isStart = _isStopped;
+    final isPaused = _isPaused;
+
+    final icon = isStart || isPaused
+        ? Icons.play_arrow_rounded
+        : Icons.pause_rounded;
+
+    final label = isStart
+        ? "Start"
+        : isPaused
+        ? "Resume"
+        : "Pause";
+
+    return Row(
+      key: ValueKey(label),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, color: Colors.black, size: isStart ? 28 : 24),
+        SizedBox(width: isStart ? 8 : 6),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.black,
+            fontSize: isStart ? 21 : 20,
+            fontWeight: isStart ? FontWeight.w700 : FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 }
