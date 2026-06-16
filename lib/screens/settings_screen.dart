@@ -1,544 +1,456 @@
-import 'dart:async';
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-import '../bike_data.dart';
 import '../ble_service.dart';
+import '../controllers/bike_console_controller.dart';
+import '../models/ride_models.dart';
 import 'scan_for_devices_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, required this.bikeConsoleController});
+
+  final BikeConsoleController bikeConsoleController;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  BluetoothDevice? connectedDevice;
-  BluetoothCharacteristic? rpmCharacteristic;
+  late final TextEditingController _circumferenceController;
+  late final TextEditingController _autoPauseSecondsController;
 
-  final bikeData = BikeData.instance;
-  final bleService = BleService.instance;
+  bool _autoPauseEnabled = true;
+  bool _savingRideSettings = false;
 
-  String status = "Disconnected";
-  String? savedDeviceId;
-  String? savedDeviceName;
-  int? speed;
-  int? rpm;
-  double? distance;
-  double? avgSpeed;
-  int? maxSpeed;
-
-  bool leftIndicator = false;
-  bool rightIndicator = false;
-  bool hazard = false;
-
-  int? rssi;
-
-  bool connecting = false;
-  bool reconnecting = false;
-
-  StreamSubscription<List<ScanResult>>? scanSub;
-  StreamSubscription<List<int>>? rpmSub;
-  StreamSubscription<BluetoothConnectionState>? connectionSub;
-  StreamSubscription<BluetoothBondState>? bondSub;
-
-  Timer? rssiTimer;
+  RideSettings get _settings =>
+      widget.bikeConsoleController.rideSessionController.settings;
 
   @override
   void initState() {
     super.initState();
 
-    final bike = BikeData.instance;
+    _circumferenceController = TextEditingController(
+      text: _settings.tyreCircumferenceMeters.toStringAsFixed(2),
+    );
 
-    speed = bike.speed;
-    rpm = bike.rpm;
-    distance = bike.distance;
-    avgSpeed = bike.avgSpeed;
-    maxSpeed = bike.maxSpeed;
+    _autoPauseSecondsController = TextEditingController(
+      text: _settings.autoPauseSeconds.toString(),
+    );
 
-    leftIndicator = bike.leftIndicator;
-    rightIndicator = bike.rightIndicator;
-    hazard = bike.hazard;
+    _autoPauseEnabled = _settings.autoPauseEnabled;
 
-    rssi = bike.rssi;
-    status = bike.status;
-
-    bike.addListener(_bikeDataListener);
+    widget.bikeConsoleController.addListener(_onConsoleChanged);
   }
 
   @override
   void dispose() {
-    BikeData.instance.removeListener(_bikeDataListener);
+    widget.bikeConsoleController.removeListener(_onConsoleChanged);
+    _circumferenceController.dispose();
+    _autoPauseSecondsController.dispose();
     super.dispose();
   }
 
-  Future<void> requestBlePermissions() async {
-    await [
-      Permission.bluetoothScan,
-      Permission.bluetoothConnect,
-      Permission.locationWhenInUse,
-    ].request();
+  void _onConsoleChanged() {
+    if (!mounted) return;
+    setState(() {});
   }
 
-  Future<void> loadSavedDevice() async {
-    final prefs = await SharedPreferences.getInstance();
+  Future<void> _saveRideSettings() async {
+    final circumferenceText = _circumferenceController.text.trim();
+    final autoPauseSecondsText = _autoPauseSecondsController.text.trim();
 
-    final deviceId = prefs.getString("bike_device_id");
-    final deviceName = prefs.getString("bike_device_name");
+    final circumference = double.tryParse(circumferenceText);
+    final autoPauseSeconds = int.tryParse(autoPauseSecondsText);
+
+    if (circumference == null || circumference <= 0) {
+      _showSnackBar("Enter a valid tyre circumference");
+      return;
+    }
+
+    if (circumference < 0.5 || circumference > 3.5) {
+      _showSnackBar("Tyre circumference should be between 0.5 m and 3.5 m");
+      return;
+    }
+
+    if (_autoPauseEnabled &&
+        (autoPauseSeconds == null ||
+            autoPauseSeconds < 1 ||
+            autoPauseSeconds > 120)) {
+      _showSnackBar("Auto-pause delay should be between 1 and 120 seconds");
+      return;
+    }
+
+    FocusScope.of(context).unfocus();
 
     setState(() {
-      savedDeviceId = deviceId;
-      savedDeviceName = deviceName;
+      _savingRideSettings = true;
     });
 
-    if (deviceId != null) {
-      setState(() {
-        status = "Reconnecting...";
-      });
-
-      Future.delayed(const Duration(milliseconds: 500), () {
-        reconnectSavedDevice();
-      });
-    }
-  }
-
-  Future<void> saveDevice(BluetoothDevice device) async {
-    final prefs = await SharedPreferences.getInstance();
-
-    await prefs.setString("bike_device_id", device.remoteId.str);
-    await prefs.setString(
-      "bike_device_name",
-      device.platformName.isNotEmpty ? device.platformName : bikeName,
+    final nextSettings = _settings.copyWith(
+      tyreCircumferenceMeters: circumference,
+      autoPauseEnabled: _autoPauseEnabled,
+      autoPauseSeconds: autoPauseSeconds ?? _settings.autoPauseSeconds,
     );
 
-    setState(() {
-      savedDeviceId = device.remoteId.str;
-      savedDeviceName = device.platformName.isNotEmpty
-          ? device.platformName
-          : bikeName;
-    });
-  }
-
-  Future<void> forgetDevice() async {
-    await connectedDevice?.disconnect();
-    reconnecting = false;
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove("bike_device_id");
-    await prefs.remove("bike_device_name");
-
-    await rpmSub?.cancel();
-    await connectionSub?.cancel();
-    await bondSub?.cancel();
-
-    setState(() {
-      connectedDevice = null;
-      rpmCharacteristic = null;
-      savedDeviceId = null;
-      savedDeviceName = null;
-
-      speed = null;
-      rpm = null;
-      distance = null;
-      avgSpeed = null;
-      maxSpeed = null;
-
-      leftIndicator = false;
-      rightIndicator = false;
-      hazard = false;
-
-      rssi = null;
-      status = "No paired device";
-    });
-  }
-
-  Future<bool> isSavedDeviceVisible() async {
-    if (savedDeviceId == null) return false;
-
-    final completer = Completer<bool>();
-
-    StreamSubscription<List<ScanResult>>? tempSub;
-
-    tempSub = FlutterBluePlus.scanResults.listen((results) {
-      for (final result in results) {
-        if (result.device.remoteId.str == savedDeviceId) {
-          tempSub?.cancel();
-
-          if (!completer.isCompleted) {
-            completer.complete(true);
-          }
-        }
-      }
-    });
-
-    await FlutterBluePlus.startScan(
-      timeout: const Duration(seconds: 3),
-      androidUsesFineLocation: false,
+    await widget.bikeConsoleController.rideSessionController.updateSettings(
+      nextSettings,
     );
 
-    await Future.delayed(const Duration(seconds: 3));
-
-    await tempSub.cancel();
-    await FlutterBluePlus.stopScan();
-
-    if (!completer.isCompleted) {
-      completer.complete(false);
-    }
-
-    return completer.future;
-  }
-
-  Future<void> reconnectSavedDevice() async {
-    if (savedDeviceId == null) return;
-
-    await requestBlePermissions();
-
-    final device = BluetoothDevice.fromId(savedDeviceId!);
-    await connectToDevice(device);
-  }
-
-  Future<void> startReconnectLoop() async {
-    if (reconnecting) return;
-    if (savedDeviceId == null) return;
-
-    reconnecting = true;
-
-    while (reconnecting && mounted) {
-      if (status == "Connected") {
-        reconnecting = false;
-        return;
-      }
-      final visible = await isSavedDeviceVisible();
-
-      if (!visible) {
-        if (status == "Connected") {
-          reconnecting = false;
-          return;
-        }
-
-        setState(() {
-          status = "Offline";
-        });
-
-        await Future.delayed(const Duration(seconds: 2));
-        continue;
-      }
-
-      setState(() {
-        status = "Disconnected";
-      });
-
-      await Future.delayed(const Duration(seconds: 1));
-
-      try {
-        setState(() {
-          status = "Reconnecting...";
-        });
-
-        await reconnectSavedDevice();
-
-        if (connectedDevice?.isConnected == true) {
-          reconnecting = false;
-          return;
-        }
-
-        setState(() {
-          status = "Reconnection Failed";
-        });
-      } catch (_) {
-        setState(() {
-          status = "Reconnection Failed";
-        });
-      }
-
-      await Future.delayed(const Duration(seconds: 2));
-    }
-  }
-
-  Future<void> connectToDevice(BluetoothDevice device) async {
-    if (connecting) return;
-
-    setState(() {
-      connecting = true;
-      status = "Connecting...";
-    });
-
-    try {
-      connectionSub?.cancel();
-      connectionSub = device.connectionState.listen((state) async {
-        if (!mounted) return;
-
-        if (state == BluetoothConnectionState.connected) {
-          reconnecting = false;
-
-          setState(() {
-            status = "Connected";
-          });
-
-          bikeData.updateStatus("Connected");
-
-          return;
-        }
-
-        setState(() {
-          status = "Disconnected";
-          rssi = null;
-
-          speed = null;
-          rpm = null;
-          distance = null;
-          avgSpeed = null;
-          maxSpeed = null;
-
-          leftIndicator = false;
-          rightIndicator = false;
-          hazard = false;
-        });
-
-        bikeData.updateStatus("Disconnected");
-        bikeData.clearRideData();
-
-        if (savedDeviceId != null) {
-          startReconnectLoop();
-        }
-      });
-
-      bondSub?.cancel();
-      bondSub = device.bondState.listen((bondState) async {
-        if (bondState == BluetoothBondState.none && savedDeviceId != null) {
-          // This only matters if ESP32 bonding/security is enabled later.
-          // For your current BLE code, Android usually will not create a bond.
-        }
-      });
-
-      await device.connect(
-        license: License.nonprofit,
-        timeout: const Duration(seconds: 10),
-      );
-
-      connectedDevice = device;
-      await saveDevice(device);
-
-      rssiTimer?.cancel();
-
-      rssiTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
-        try {
-          final value = await device.readRssi();
-
-          if (mounted) {
-            setState(() {
-              rssi = value;
-            });
-
-            bikeData.updateRssi(value);
-          }
-        } catch (_) {}
-      });
-
-      final services = await device.discoverServices();
-
-      for (final service in services) {
-        if (service.uuid.str.toLowerCase() == serviceUuid.toLowerCase()) {
-          for (final characteristic in service.characteristics) {
-            if (characteristic.uuid.str.toLowerCase() ==
-                characteristicUuid.toLowerCase()) {
-              rpmCharacteristic = characteristic;
-
-              await characteristic.setNotifyValue(true);
-
-              rpmSub?.cancel();
-              rpmSub = characteristic.onValueReceived.listen((value) {
-                try {
-                  final text = utf8.decode(value).trim();
-
-                  final data = jsonDecode(text);
-
-                  if (!mounted) return;
-
-                  setState(() {
-                    speed = data["speed"];
-                    rpm = data["rpm"];
-
-                    distance = (data["distance"] as num).toDouble();
-                    avgSpeed = (data["avgSpeed"] as num).toDouble();
-
-                    maxSpeed = data["maxSpeed"];
-
-                    leftIndicator = data["left"] ?? false;
-                    rightIndicator = data["right"] ?? false;
-                    hazard = data["hazard"] ?? false;
-                  });
-
-                  bikeData.updateFromJson(data);
-                } catch (e) {
-                  debugPrint("JSON Error: $e");
-                }
-              });
-
-              setState(() {
-                status = "Connected";
-              });
-
-              return;
-            }
-          }
-        }
-      }
-
-      setState(() {
-        status = "Connected, but RPM characteristic not found";
-      });
-    } catch (e) {
-      setState(() {
-        status = "Connection failed";
-      });
-    } finally {
-      setState(() {
-        connecting = false;
-      });
-    }
-  }
-
-  Future<void> disconnect() async {
-    await connectedDevice?.disconnect();
-
-    setState(() {
-      connectedDevice = null;
-      rpmCharacteristic = null;
-
-      speed = null;
-      rpm = null;
-      distance = null;
-      avgSpeed = null;
-      maxSpeed = null;
-
-      leftIndicator = false;
-      rightIndicator = false;
-      hazard = false;
-
-      rssi = null;
-      status = "Disconnected";
-    });
-  }
-
-  void _bikeDataListener() {
     if (!mounted) return;
 
-    final bike = BikeData.instance;
-
     setState(() {
-      speed = bike.speed;
-      rpm = bike.rpm;
-      distance = bike.distance;
-      avgSpeed = bike.avgSpeed;
-      maxSpeed = bike.maxSpeed;
-
-      leftIndicator = bike.leftIndicator;
-      rightIndicator = bike.rightIndicator;
-      hazard = bike.hazard;
-
-      rssi = bike.rssi;
-      status = bike.status;
+      _savingRideSettings = false;
+      _circumferenceController.text = nextSettings.tyreCircumferenceMeters
+          .toStringAsFixed(2);
+      _autoPauseSecondsController.text = nextSettings.autoPauseSeconds
+          .toString();
     });
+
+    _showSnackBar("Ride settings saved");
+  }
+
+  void _showSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(milliseconds: 1000),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Future<void> _pairDevice() async {
+    final BluetoothDevice? selected = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ScanForDevicesScreen()),
+    );
+
+    if (selected != null) {
+      await BleService.instance.connectToDevice(selected);
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _forgetDevice() async {
+    await BleService.instance.forgetDevice();
+    if (mounted) setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
+    final connectionController =
+        widget.bikeConsoleController.connectionController;
+
+    final rideState = widget.bikeConsoleController.rideSessionController.state;
+
+    final savedDeviceName = BleService.instance.savedDeviceName;
     final hasSavedDevice = BleService.instance.savedDeviceId != null;
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Bike Console Settings")),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      "Bluetooth Device",
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text("Status: $status"),
-                    const SizedBox(height: 8),
-                    Text("Signal: ${rssi != null ? "$rssi dBm" : "-"}"),
-                    const SizedBox(height: 8),
-                    Text(
-                      "Device: ${BleService.instance.savedDeviceName ?? "None"}",
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      "RPM: ${rpm ?? "-"}",
-                      style: const TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text("Speed: ${speed ?? "-"} km/h"),
-
-                    const SizedBox(height: 8),
-                    Text("Distance: ${distance?.toStringAsFixed(2) ?? "-"} km"),
-
-                    const SizedBox(height: 8),
-                    Text(
-                      "Avg Speed: ${avgSpeed?.toStringAsFixed(1) ?? "-"} km/h",
-                    ),
-
-                    const SizedBox(height: 8),
-                    Text("Max Speed: ${maxSpeed ?? "-"} km/h"),
-
-                    const SizedBox(height: 8),
-                    Text("Left Indicator: $leftIndicator"),
-
-                    const SizedBox(height: 8),
-                    Text("Right Indicator: $rightIndicator"),
-
-                    const SizedBox(height: 8),
-                    Text("Hazard: $hazard"),
-                  ],
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text("Bike Console Settings"),
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        children: [
+          _SettingsCard(
+            title: "Ride Settings",
+            children: [
+              const Text(
+                "Tyre Circumference",
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-
-            if (!hasSavedDevice)
-              ElevatedButton(
-                onPressed: () async {
-                  final BluetoothDevice? selected = await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const ScanForDevicesScreen(),
-                    ),
-                  );
-
-                  if (selected != null) {
-                    await BleService.instance.connectToDevice(selected);
-                  }
+              const SizedBox(height: 8),
+              TextField(
+                controller: _circumferenceController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,3}')),
+                ],
+                style: const TextStyle(color: Colors.white),
+                decoration: _inputDecoration(hintText: "2.00", suffixText: "m"),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                "Used by the app to calculate speed from wheel RPM. This value will sync to the console later.",
+                style: TextStyle(
+                  color: Colors.white38,
+                  fontSize: 12,
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 20),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: _autoPauseEnabled,
+                activeThumbColor: Colors.greenAccent,
+                activeTrackColor: Colors.greenAccent.withValues(alpha: 0.35),
+                title: const Text(
+                  "Auto Pause",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                subtitle: const Text(
+                  "Pause the ride when no movement is detected.",
+                  style: TextStyle(color: Colors.white38),
+                ),
+                onChanged: (value) {
+                  setState(() {
+                    _autoPauseEnabled = value;
+                  });
                 },
-                child: const Text("Pair a Device"),
               ),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 220),
+                child: _autoPauseEnabled
+                    ? Column(
+                        key: const ValueKey("auto-pause-seconds"),
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 10),
+                          const Text(
+                            "Inactivity Delay",
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: _autoPauseSecondsController,
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                            ],
+                            style: const TextStyle(color: Colors.white),
+                            decoration: _inputDecoration(
+                              hintText: "10",
+                              suffixText: "seconds",
+                            ),
+                          ),
+                        ],
+                      )
+                    : const SizedBox.shrink(
+                        key: ValueKey("auto-pause-disabled"),
+                      ),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                height: 48,
+                child: ElevatedButton(
+                  onPressed: _savingRideSettings ? null : _saveRideSettings,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.greenAccent,
+                    foregroundColor: Colors.black,
+                    disabledBackgroundColor: Colors.white12,
+                    disabledForegroundColor: Colors.white38,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  child: Text(
+                    _savingRideSettings ? "Saving..." : "Save Ride Settings",
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _SettingsCard(
+            title: "Current Ride State",
+            children: [
+              _InfoRow(label: "Ride", value: rideState.rideState.name),
+              _InfoRow(
+                label: "Speed",
+                value: "${rideState.currentSpeedKmph.toStringAsFixed(1)} km/h",
+              ),
+              _InfoRow(
+                label: "RPM",
+                value: rideState.currentRpm.toStringAsFixed(0),
+              ),
+              _InfoRow(
+                label: "Distance",
+                value: "${rideState.distanceKm.toStringAsFixed(2)} km",
+              ),
+              _InfoRow(
+                label: "Hazard",
+                value: rideState.hazardEnabled ? "On" : "Off",
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _SettingsCard(
+            title: "Bluetooth Device",
+            children: [
+              _InfoRow(
+                label: "Status",
+                value: connectionController.connectionState.name,
+              ),
+              _InfoRow(label: "Saved Device", value: savedDeviceName ?? "None"),
+              const SizedBox(height: 14),
+              if (!hasSavedDevice)
+                SizedBox(
+                  height: 46,
+                  child: OutlinedButton(
+                    onPressed: _pairDevice,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.22),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    child: const Text("Pair a Device"),
+                  ),
+                ),
+              if (hasSavedDevice)
+                SizedBox(
+                  height: 46,
+                  child: OutlinedButton(
+                    onPressed: _forgetDevice,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.redAccent,
+                      side: BorderSide(
+                        color: Colors.redAccent.withValues(alpha: 0.35),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    child: const Text("Forget Device"),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 
-            if (hasSavedDevice)
-              OutlinedButton(
-                onPressed: BleService.instance.forgetDevice,
-                child: const Text("Forget Device"),
-              ),
-          ],
+  InputDecoration _inputDecoration({
+    required String hintText,
+    required String suffixText,
+  }) {
+    return InputDecoration(
+      hintText: hintText,
+      suffixText: suffixText,
+      hintStyle: const TextStyle(color: Colors.white24),
+      suffixStyle: const TextStyle(color: Colors.white54),
+      filled: true,
+      fillColor: const Color(0xFF101010),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(
+          color: Colors.greenAccent.withValues(alpha: 0.7),
         ),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(color: Colors.redAccent),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(color: Colors.redAccent),
+      ),
+    );
+  }
+}
+
+class _SettingsCard extends StatelessWidget {
+  const _SettingsCard({required this.title, required this.children});
+
+  final String title;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF181818).withValues(alpha: 0.78),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.35),
+            blurRadius: 22,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 19,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 16),
+          ...children,
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(color: Colors.white54, fontSize: 13),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

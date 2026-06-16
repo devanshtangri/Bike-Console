@@ -15,7 +15,7 @@ class RideSessionController extends ChangeNotifier {
   RideSessionState _state = RideSessionState.initial();
   RideSettings _settings = RideSettings.defaults();
   ConsoleConnectionState _connectionState = ConsoleConnectionState.disconnected;
-  int? _lastMovingEpochMs;
+  int? _notMovingSinceEpochMs;
   int? _lastSnapshotSaveEpochMs;
   Timer? _durationTicker;
 
@@ -76,12 +76,11 @@ class RideSessionController extends ChangeNotifier {
 
   void restoreFromSnapshot(PersistedRideSnapshot snapshot) {
     _state = snapshot.toSessionState();
+    _notMovingSinceEpochMs = null;
 
     if (_state.rideState == RideState.running) {
-      _lastMovingEpochMs = DateTime.now().millisecondsSinceEpoch;
       _startDurationTicker();
     } else {
-      _lastMovingEpochMs = null;
       _stopDurationTicker();
     }
 
@@ -93,7 +92,7 @@ class RideSessionController extends ChangeNotifier {
     final nowEpochMs = DateTime.now().millisecondsSinceEpoch;
 
     if (packet.isMoving) {
-      _lastMovingEpochMs = nowEpochMs;
+      _notMovingSinceEpochMs = null;
 
       if (_state.rideState == RideState.paused &&
           _state.pauseReason == PauseReason.auto) {
@@ -111,8 +110,11 @@ class RideSessionController extends ChangeNotifier {
 
     final activeDurationMs = calculateActiveDurationMs();
 
-    final nextAverageSpeed = _state.isRideActive && activeDurationMs > 0
+    final nextAverageSpeed =
+        _state.rideState == RideState.running && activeDurationMs > 0
         ? nextDistanceKm / (activeDurationMs / 3600000.0)
+        : _state.rideState == RideState.paused
+        ? _state.averageSpeedKmph
         : 0.0;
 
     _state = _state.copyWith(
@@ -161,10 +163,14 @@ class RideSessionController extends ChangeNotifier {
   void finishCountdownAndStartRide({int? startEpochMs}) {
     if (_state.rideState != RideState.countdown) return;
 
+    final startMs = startEpochMs ?? DateTime.now().millisecondsSinceEpoch;
+
+    _notMovingSinceEpochMs = null;
+
     _state = _state.copyWith(
       rideState: RideState.running,
       pauseReason: PauseReason.none,
-      rideStartEpochMs: startEpochMs ?? DateTime.now().millisecondsSinceEpoch,
+      rideStartEpochMs: startMs,
       clearCurrentPauseStartEpochMs: true,
       accumulatedPausedMs: 0,
       distanceKm: 0,
@@ -178,10 +184,9 @@ class RideSessionController extends ChangeNotifier {
         distanceKm: 0,
       ),
     );
+
     _persistSnapshotFireAndForget(force: true);
-
     _startDurationTicker();
-
     notifyListeners();
   }
 
@@ -224,8 +229,9 @@ class RideSessionController extends ChangeNotifier {
 
     final pauseStart = _state.currentPauseStartEpochMs;
     final now = resumeEpochMs ?? DateTime.now().millisecondsSinceEpoch;
-
     final completedPauseMs = pauseStart == null ? 0 : now - pauseStart;
+
+    _notMovingSinceEpochMs = null;
 
     _state = _state.copyWith(
       rideState: RideState.running,
@@ -237,15 +243,13 @@ class RideSessionController extends ChangeNotifier {
 
     onCommand?.call(BikeCommand.resume());
     _persistSnapshotFireAndForget(force: true);
-
     _startDurationTicker();
-
     notifyListeners();
   }
 
   void stopRide() {
     _state = RideSessionState.initial();
-    _lastMovingEpochMs = null;
+    _notMovingSinceEpochMs = null;
     _lastSnapshotSaveEpochMs = null;
 
     onCommand?.call(BikeCommand.stop());
@@ -335,14 +339,14 @@ class RideSessionController extends ChangeNotifier {
     if (!_settings.autoPauseEnabled) return;
     if (_state.rideState != RideState.running) return;
 
-    final lastMoving = _lastMovingEpochMs;
-    if (lastMoving == null) return;
+    _notMovingSinceEpochMs ??= nowEpochMs;
 
-    final inactiveMs = nowEpochMs - lastMoving;
+    final inactiveMs = nowEpochMs - _notMovingSinceEpochMs!;
     final requiredInactiveMs = _settings.autoPauseSeconds * 1000;
 
     if (inactiveMs >= requiredInactiveMs) {
       autoPauseRide(pauseEpochMs: nowEpochMs);
+      _notMovingSinceEpochMs = null;
     }
   }
 

@@ -373,7 +373,9 @@ class _DashboardScreenState extends State<DashboardScreen>
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => const SettingsScreen(),
+                          builder: (_) => SettingsScreen(
+                            bikeConsoleController: widget.bikeConsoleController,
+                          ),
                         ),
                       );
                     },
