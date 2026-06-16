@@ -199,10 +199,10 @@ class _RideControlBarState extends State<RideControlBar> {
                       child: FittedBox(
                         fit: BoxFit.scaleDown,
                         child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 320),
-                          reverseDuration: const Duration(milliseconds: 240),
-                          switchInCurve: Curves.easeOutCubic,
-                          switchOutCurve: Curves.easeInCubic,
+                          duration: const Duration(milliseconds: 620),
+                          reverseDuration: const Duration(milliseconds: 620),
+                          switchInCurve: Curves.easeInOutCubic,
+                          switchOutCurve: Curves.easeInOutCubic,
                           transitionBuilder: (child, animation) {
                             return FadeTransition(
                               opacity: animation,
