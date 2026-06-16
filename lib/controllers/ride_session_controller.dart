@@ -1,5 +1,5 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
-
 import '../models/ride_models.dart';
 import '../services/ride_persistence_service.dart';
 
@@ -17,6 +17,7 @@ class RideSessionController extends ChangeNotifier {
   ConsoleConnectionState _connectionState = ConsoleConnectionState.disconnected;
   int? _lastMovingEpochMs;
   int? _lastSnapshotSaveEpochMs;
+  Timer? _durationTicker;
 
   RideSessionState get state => _state;
   RideSettings get settings => _settings;
@@ -78,8 +79,10 @@ class RideSessionController extends ChangeNotifier {
 
     if (_state.rideState == RideState.running) {
       _lastMovingEpochMs = DateTime.now().millisecondsSinceEpoch;
+      _startDurationTicker();
     } else {
       _lastMovingEpochMs = null;
+      _stopDurationTicker();
     }
 
     notifyListeners();
@@ -173,6 +176,9 @@ class RideSessionController extends ChangeNotifier {
       ),
     );
     _persistSnapshotFireAndForget(force: true);
+
+    _startDurationTicker();
+
     notifyListeners();
   }
 
@@ -187,6 +193,9 @@ class RideSessionController extends ChangeNotifier {
     );
     onCommand?.call(BikeCommand.pause());
     _persistSnapshotFireAndForget(force: true);
+
+    _stopDurationTicker();
+
     notifyListeners();
   }
 
@@ -201,6 +210,9 @@ class RideSessionController extends ChangeNotifier {
     );
     onCommand?.call(BikeCommand.pause());
     _persistSnapshotFireAndForget(force: true);
+
+    _stopDurationTicker();
+
     notifyListeners();
   }
 
@@ -221,6 +233,9 @@ class RideSessionController extends ChangeNotifier {
     );
     onCommand?.call(BikeCommand.resume());
     _persistSnapshotFireAndForget(force: true);
+
+    _startDurationTicker();
+
     notifyListeners();
   }
 
@@ -231,6 +246,9 @@ class RideSessionController extends ChangeNotifier {
 
     onCommand?.call(BikeCommand.stop());
     _persistSnapshotFireAndForget(force: true);
+
+    _stopDurationTicker();
+
     notifyListeners();
   }
 
@@ -250,6 +268,21 @@ class RideSessionController extends ChangeNotifier {
 
     if (activeMs < 0) return 0;
     return activeMs;
+  }
+
+  void _startDurationTicker() {
+    _durationTicker?.cancel();
+
+    _durationTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_state.rideState == RideState.running) {
+        notifyListeners();
+      }
+    });
+  }
+
+  void _stopDurationTicker() {
+    _durationTicker?.cancel();
+    _durationTicker = null;
   }
 
   String formattedActiveDuration({int? nowEpochMs}) {
@@ -316,5 +349,11 @@ class RideSessionController extends ChangeNotifier {
     // multiply by 60 = meters per hour.
     // divide by 1000 = km/h.
     return rpm * _settings.tyreCircumferenceMeters * 60.0 / 1000.0;
+  }
+
+  @override
+  void dispose() {
+    _stopDurationTicker();
+    super.dispose();
   }
 }

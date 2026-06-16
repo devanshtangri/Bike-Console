@@ -1,26 +1,88 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../models/ride_models.dart';
 import '../theme/app_colors.dart';
 
-enum RideControlState { stopped, running, paused }
-
 class RideControlBar extends StatefulWidget {
-  const RideControlBar({super.key});
+  const RideControlBar({
+    super.key,
+    required this.rideState,
+    required this.canStart,
+    required this.timerText,
+    required this.onStart,
+    required this.onPause,
+    required this.onResume,
+    required this.onStop,
+  });
+
+  final RideState rideState;
+  final bool canStart;
+  final String timerText;
+  final VoidCallback onStart;
+  final VoidCallback onPause;
+  final VoidCallback onResume;
+  final VoidCallback onStop;
 
   @override
   State<RideControlBar> createState() => _RideControlBarState();
 }
 
-class _RideControlBarState extends State<RideControlBar> {
-  RideControlState _rideState = RideControlState.stopped;
+class _RideControlBarState extends State<RideControlBar>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _blockedTapController;
+  late final Animation<double> _blockedTapAnimation;
 
-  bool get _isStopped => _rideState == RideControlState.stopped;
-  bool get _isRunning => _rideState == RideControlState.running;
-  bool get _isPaused => _rideState == RideControlState.paused;
+  RideState get rideState => widget.rideState;
+  bool get canStart => widget.canStart;
+  String get timerText => widget.timerText;
+  VoidCallback get onStart => widget.onStart;
+  VoidCallback get onPause => widget.onPause;
+  VoidCallback get onResume => widget.onResume;
+  VoidCallback get onStop => widget.onStop;
 
-  Future<void> _showStopConfirmation() async {
+  bool get _isStopped => rideState == RideState.stopped;
+  bool get _isRunning => rideState == RideState.running;
+  bool get _isPaused => rideState == RideState.paused;
+  bool get _isCountdown => rideState == RideState.countdown;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _blockedTapController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 360),
+    );
+
+    _blockedTapAnimation = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0, end: -9), weight: 1),
+      TweenSequenceItem(tween: Tween(begin: -9, end: 9), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: 9, end: -6), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: -6, end: 6), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: 6, end: 0), weight: 1),
+    ]).animate(
+      CurvedAnimation(
+        parent: _blockedTapController,
+        curve: Curves.easeOutCubic,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _blockedTapController.dispose();
+    super.dispose();
+  }
+
+  void _handleBlockedStartTap() {
+    HapticFeedback.mediumImpact();
+    _blockedTapController.forward(from: 0);
+  }
+
+  Future<void> _showStopConfirmation(BuildContext context) async {
     final shouldStop = await showDialog<bool>(
       context: context,
       builder: (context) {
@@ -29,7 +91,10 @@ class _RideControlBarState extends State<RideControlBar> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(24),
           ),
-          title: const Text("End Ride?", style: TextStyle(color: Colors.white)),
+          title: const Text(
+            "End Ride?",
+            style: TextStyle(color: Colors.white),
+          ),
           content: const Text(
             "Are you sure you want to stop and finish this ride?",
             style: TextStyle(color: Colors.white70),
@@ -59,11 +124,7 @@ class _RideControlBarState extends State<RideControlBar> {
     );
 
     if (shouldStop == true) {
-      setState(() {
-        _rideState = RideControlState.stopped;
-      });
-
-      // Later: reset ride data / save ride / navigate to summary.
+      onStop();
     }
   }
 
@@ -95,19 +156,19 @@ class _RideControlBarState extends State<RideControlBar> {
           ),
           child: Align(
             alignment: Alignment.center,
-            child: _rideControlContent(),
+            child: _rideControlContent(context),
           ),
         ),
       ),
     );
   }
 
-  Widget _rideControlContent() {
+  Widget _rideControlContent(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final totalWidth = constraints.maxWidth;
 
-        final timerWidth = totalWidth * 0.46;
+        final timerWidth = totalWidth * 0.42;
         const gapWidth = 12.0;
 
         return Row(
@@ -121,16 +182,16 @@ class _RideControlBarState extends State<RideControlBar> {
                   opacity: _isStopped ? 0 : 1,
                   duration: const Duration(milliseconds: 420),
                   curve: Curves.easeOutCubic,
-                  child: const FittedBox(
+                  child: FittedBox(
                     fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
+                    alignment: Alignment.center,
                     child: Row(
                       children: [
-                        Icon(Icons.timer_outlined, color: Colors.white),
-                        SizedBox(width: 12),
+                        const Icon(Icons.timer_outlined, color: Colors.white),
+                        const SizedBox(width: 12),
                         Text(
-                          "2:15:02",
-                          style: TextStyle(
+                          timerText,
+                          style: const TextStyle(
                             color: Colors.white,
                             fontSize: 28,
                             fontWeight: FontWeight.w500,
@@ -149,16 +210,22 @@ class _RideControlBarState extends State<RideControlBar> {
               width: _isStopped ? 0 : gapWidth,
             ),
 
-            Expanded(child: SizedBox(height: 54, child: _rideActionButton())),
+            Expanded(
+              child: SizedBox(
+                height: 54,
+                child: _rideActionButton(context),
+              ),
+            ),
           ],
         );
       },
     );
   }
 
-  Widget _rideActionButton() {
+  Widget _rideActionButton(BuildContext context) {
     final isStart = _isStopped;
     final isPaused = _isPaused;
+    final isBlockedStart = isStart && !canStart;
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
@@ -166,9 +233,11 @@ class _RideControlBarState extends State<RideControlBar> {
         duration: const Duration(milliseconds: 620),
         curve: Curves.easeInOutCubic,
         decoration: BoxDecoration(
-          color: isPaused || isStart
-              ? AppColors.premiumGreen
-              : const Color(0xFFFFC928),
+          color: isBlockedStart
+              ? Colors.redAccent
+              : isPaused || isStart
+                  ? AppColors.premiumGreen
+                  : const Color(0xFFFFC928),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Stack(
@@ -176,46 +245,63 @@ class _RideControlBarState extends State<RideControlBar> {
             Positioned.fill(
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: () {
-                  setState(() {
-                    if (_isStopped) {
-                      _rideState = RideControlState.running;
-                    } else if (_isRunning) {
-                      _rideState = RideControlState.paused;
-                    } else {
-                      _rideState = RideControlState.running;
-                    }
-                  });
-                },
-                child: AnimatedPadding(
-                  duration: const Duration(milliseconds: 620),
-                  curve: Curves.easeInOutCubic,
-                  padding: EdgeInsets.only(
-                    left: isPaused ? 8 : 0,
-                    right: isPaused ? 70 : 0,
-                  ),
-                  child: Center(
-                    child: ClipRect(
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 620),
-                          reverseDuration: const Duration(milliseconds: 620),
-                          switchInCurve: Curves.easeInOutCubic,
-                          switchOutCurve: Curves.easeInOutCubic,
-                          transitionBuilder: (child, animation) {
-                            return FadeTransition(
-                              opacity: animation,
-                              child: ScaleTransition(
-                                scale: Tween<double>(
-                                  begin: 0.96,
-                                  end: 1.0,
-                                ).animate(animation),
-                                child: child,
-                              ),
-                            );
-                          },
-                          child: _rideActionContent(),
+                onTap: _isCountdown
+                    ? null
+                    : () {
+                        if (isBlockedStart) {
+                          _handleBlockedStartTap();
+                          return;
+                        }
+
+                        if (_isStopped) {
+                          onStart();
+                        } else if (_isRunning) {
+                          onPause();
+                        } else if (_isPaused) {
+                          onResume();
+                        }
+                      },
+                child: AnimatedBuilder(
+                  animation: _blockedTapAnimation,
+                  builder: (context, child) {
+                    return Transform.translate(
+                      offset: Offset(
+                        isBlockedStart ? _blockedTapAnimation.value : 0,
+                        0,
+                      ),
+                      child: child,
+                    );
+                  },
+                  child: AnimatedPadding(
+                    duration: const Duration(milliseconds: 620),
+                    curve: Curves.easeInOutCubic,
+                    padding: EdgeInsets.only(
+                      left: isPaused ? 8 : 0,
+                      right: isPaused ? 70 : 0,
+                    ),
+                    child: Center(
+                      child: ClipRect(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 620),
+                            reverseDuration: const Duration(milliseconds: 620),
+                            switchInCurve: Curves.easeInOutCubic,
+                            switchOutCurve: Curves.easeInOutCubic,
+                            transitionBuilder: (child, animation) {
+                              return FadeTransition(
+                                opacity: animation,
+                                child: ScaleTransition(
+                                  scale: Tween<double>(
+                                    begin: 0.96,
+                                    end: 1.0,
+                                  ).animate(animation),
+                                  child: child,
+                                ),
+                              );
+                            },
+                            child: _rideActionContent(),
+                          ),
                         ),
                       ),
                     ),
@@ -250,7 +336,7 @@ class _RideControlBarState extends State<RideControlBar> {
                     duration: const Duration(milliseconds: 560),
                     curve: Curves.easeOutCubic,
                     child: GestureDetector(
-                      onTap: _showStopConfirmation,
+                      onTap: () => _showStopConfirmation(context),
                       child: Container(
                         width: 38,
                         height: 38,
@@ -278,28 +364,43 @@ class _RideControlBarState extends State<RideControlBar> {
   Widget _rideActionContent() {
     final isStart = _isStopped;
     final isPaused = _isPaused;
+    final isBlockedStart = isStart && !canStart;
 
-    final icon = isStart || isPaused
-        ? Icons.play_arrow_rounded
-        : Icons.pause_rounded;
+    final icon = isBlockedStart
+        ? Icons.memory_rounded
+        : isStart || isPaused
+            ? Icons.play_arrow_rounded
+            : Icons.pause_rounded;
 
-    final label = isStart
-        ? "Start"
-        : isPaused
-        ? "Resume"
-        : "Pause";
+    final label = isBlockedStart
+        ? "Connect a Console"
+        : _isCountdown
+            ? "Starting"
+            : isStart
+                ? "Start"
+                : isPaused
+                    ? "Resume"
+                    : "Pause";
 
     return Row(
       key: ValueKey(label),
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, color: Colors.black, size: isStart ? 28 : 24),
+        Icon(
+          icon,
+          color: Colors.black,
+          size: isStart ? 28 : 24,
+        ),
         SizedBox(width: isStart ? 8 : 6),
         Text(
           label,
           style: TextStyle(
             color: Colors.black,
-            fontSize: isStart ? 21 : 20,
+            fontSize: isBlockedStart
+                ? 18
+                : isStart
+                    ? 21
+                    : 20,
             fontWeight: isStart ? FontWeight.w700 : FontWeight.w600,
           ),
         ),

@@ -32,6 +32,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   late final AnimationController _recenterPulseController;
   late final Animation<double> _recenterPulseAnimation;
 
+  int? _countdownValue;
+
   @override
   void initState() {
     super.initState();
@@ -80,6 +82,32 @@ class _DashboardScreenState extends State<DashboardScreen>
   void _onMapTrackingChanged() {
     if (!mounted) return;
     setState(() {});
+  }
+
+  Future<void> _startRideWithCountdown() async {
+    final rideController = widget.bikeConsoleController.rideSessionController;
+
+    if (!rideController.canStartRide) return;
+
+    rideController.beginCountdown();
+
+    for (final value in [3, 2, 1, 0]) {
+      if (!mounted) return;
+
+      setState(() {
+        _countdownValue = value;
+      });
+
+      await Future.delayed(const Duration(milliseconds: 800));
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      _countdownValue = null;
+    });
+
+    rideController.finishCountdownAndStartRide();
   }
 
   void _injectDebugBikeData() {
@@ -402,12 +430,98 @@ class _DashboardScreenState extends State<DashboardScreen>
                           ],
                         ),
                       ),
+                      if (_countdownValue != null)
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: Container(
+                              color: Colors.black.withValues(alpha: 0.72),
+                              child: Center(
+                                child: Transform.translate(
+                                  // Small visual correction because large text digits sit slightly
+                                  // below optical center due to font metrics.
+                                  offset: const Offset(0, -10),
+                                  child: AnimatedSwitcher(
+                                    duration: const Duration(milliseconds: 260),
+                                    transitionBuilder: (child, animation) {
+                                      return FadeTransition(
+                                        opacity: animation,
+                                        child: ScaleTransition(
+                                          scale:
+                                              Tween<double>(
+                                                begin: 0.82,
+                                                end: 1.0,
+                                              ).animate(
+                                                CurvedAnimation(
+                                                  parent: animation,
+                                                  curve: Curves.easeOutCubic,
+                                                ),
+                                              ),
+                                          child: child,
+                                        ),
+                                      );
+                                    },
+                                    child: Text(
+                                      "$_countdownValue",
+                                      key: ValueKey(_countdownValue),
+                                      textAlign: TextAlign.center,
+                                      strutStyle: const StrutStyle(
+                                        forceStrutHeight: true,
+                                        height: 1,
+                                      ),
+                                      style: TextStyle(
+                                        color: _countdownValue == 0
+                                            ? AppColors.premiumGreen
+                                            : Colors.white,
+                                        fontSize: 120,
+                                        fontWeight: FontWeight.w800,
+                                        height: 1,
+                                        shadows: [
+                                          Shadow(
+                                            color:
+                                                (_countdownValue == 0
+                                                        ? AppColors.premiumGreen
+                                                        : Colors.white)
+                                                    .withValues(alpha: 0.45),
+                                            blurRadius: 30,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
 
                       Positioned(
                         left: screenWidth * 0.04,
                         right: screenWidth * 0.04,
                         bottom: rideBottom,
-                        child: const RideControlBar(),
+                        child: RideControlBar(
+                          rideState: rideState.rideState,
+                          canStart: widget
+                              .bikeConsoleController
+                              .rideSessionController
+                              .canStartRide,
+                          timerText: widget
+                              .bikeConsoleController
+                              .rideSessionController
+                              .formattedActiveDuration(),
+                          onStart: _startRideWithCountdown,
+                          onPause: widget
+                              .bikeConsoleController
+                              .rideSessionController
+                              .manualPauseRide,
+                          onResume: widget
+                              .bikeConsoleController
+                              .rideSessionController
+                              .resumeRide,
+                          onStop: widget
+                              .bikeConsoleController
+                              .rideSessionController
+                              .stopRide,
+                        ),
                       ),
                     ],
                   );
