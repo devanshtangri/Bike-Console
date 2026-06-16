@@ -33,6 +33,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   late final Animation<double> _recenterPulseAnimation;
 
   int? _countdownValue;
+  bool _debugLeftPhysical = false;
+  bool _debugRightPhysical = false;
 
   @override
   void initState() {
@@ -91,7 +93,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     rideController.beginCountdown();
 
-    for (final value in [3, 2, 1, 0]) {
+    for (final value in [3, 2, 1]) {
       if (!mounted) return;
 
       setState(() {
@@ -112,6 +114,10 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   void _injectDebugBikeData() {
     HapticFeedback.mediumImpact();
+
+    _debugLeftPhysical = false;
+    _debugRightPhysical = false;
+
     widget.bikeConsoleController.connectionController.setConnectionState(
       ConsoleConnectionState.connected,
     );
@@ -120,19 +126,89 @@ class _DashboardScreenState extends State<DashboardScreen>
       rpm: 90,
       distanceKm: 0.25,
       isMoving: true,
-      leftPhysical: false,
-      rightPhysical: false,
+      leftPhysical: _debugLeftPhysical,
+      rightPhysical: _debugRightPhysical,
       hazardOutput: false,
       consoleRideActive: true,
     );
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("Debug packet injected: 90 RPM, 0.25 km"),
+        content: Text("Debug packet injected: 90 RPM, no indicators"),
         duration: Duration(milliseconds: 900),
         behavior: SnackBarBehavior.floating,
       ),
     );
+  }
+
+  void _toggleDebugPhysicalIndicator({required bool leftSide}) {
+    HapticFeedback.selectionClick();
+
+    widget.bikeConsoleController.connectionController.setConnectionState(
+      ConsoleConnectionState.connected,
+    );
+
+    setState(() {
+      if (leftSide) {
+        _debugLeftPhysical = !_debugLeftPhysical;
+      } else {
+        _debugRightPhysical = !_debugRightPhysical;
+      }
+    });
+
+    widget.bikeConsoleController.injectDebugSensorPacket(
+      rpm: 90,
+      distanceKm: 0.25,
+      isMoving: true,
+      leftPhysical: _debugLeftPhysical,
+      rightPhysical: _debugRightPhysical,
+      hazardOutput: false,
+      consoleRideActive: true,
+    );
+
+    final message = leftSide
+        ? "Debug left physical indicator: ${_debugLeftPhysical ? "ON" : "OFF"}"
+        : "Debug right physical indicator: ${_debugRightPhysical ? "ON" : "OFF"}";
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(milliseconds: 800),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _injectDebugDisconnect() {
+    HapticFeedback.mediumImpact();
+
+    widget.bikeConsoleController.connectionController.setConnectionState(
+      ConsoleConnectionState.disconnected,
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Debug disconnect injected"),
+        duration: Duration(milliseconds: 900),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  String _formatSpeedStat(double value) {
+    if (value > 99.9) {
+      return "${value.toStringAsFixed(0)} km/h";
+    }
+
+    return "${value.toStringAsFixed(1)} km/h";
+  }
+
+  String _formatDistanceStat(double value) {
+    if (value > 99.99) {
+      return "${value.toStringAsFixed(1)} km";
+    }
+
+    return "${value.toStringAsFixed(2)} km";
   }
 
   bool _isBikeDeviceConnected() {
@@ -142,7 +218,9 @@ class _DashboardScreenState extends State<DashboardScreen>
   Widget _buildDeviceConnectedBadge() {
     final isConnected = _isBikeDeviceConnected();
 
-    return IgnorePointer(
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onLongPress: isConnected ? _injectDebugDisconnect : null,
       child: AnimatedScale(
         scale: isConnected ? 1 : 0.86,
         duration: const Duration(milliseconds: 360),
@@ -189,6 +267,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   Widget build(BuildContext context) {
     final rideState = widget.bikeConsoleController.rideSessionController.state;
+    final isConsoleConnected =
+        widget.bikeConsoleController.connectionController.isConnected;
     final screenWidth = MediaQuery.of(context).size.width;
 
     return Scaffold(
@@ -365,17 +445,23 @@ class _DashboardScreenState extends State<DashboardScreen>
                         top: mapHeight - speedPanelHeight,
                         child: SpeedConsolePanel(
                           speedKmph: rideState.currentSpeedKmph,
-                          hazardEnabled: rideState.hazardEnabled,
-                          leftArrowActive: rideState.leftArrowActive,
-                          rightArrowActive: rideState.rightArrowActive,
-                          controlsEnabled: widget
-                              .bikeConsoleController
-                              .connectionController
-                              .isConnected,
+                          hazardEnabled:
+                              isConsoleConnected && rideState.hazardEnabled,
+                          leftArrowActive:
+                              isConsoleConnected && rideState.leftArrowActive,
+                          rightArrowActive:
+                              isConsoleConnected && rideState.rightArrowActive,
+                          controlsEnabled: isConsoleConnected,
                           onHazardTap: widget
                               .bikeConsoleController
                               .rideSessionController
                               .toggleHazard,
+                          onLeftArrowLongPress: () {
+                            _toggleDebugPhysicalIndicator(leftSide: true);
+                          },
+                          onRightArrowLongPress: () {
+                            _toggleDebugPhysicalIndicator(leftSide: false);
+                          },
                         ),
                       ),
 
@@ -391,8 +477,9 @@ class _DashboardScreenState extends State<DashboardScreen>
                                 Expanded(
                                   child: DashboardStatCard(
                                     title: "DISTANCE",
-                                    value:
-                                        "${rideState.distanceKm.toStringAsFixed(2)} km",
+                                    value: _formatDistanceStat(
+                                      rideState.distanceKm,
+                                    ),
                                     icon: Icons.route_outlined,
                                   ),
                                 ),
@@ -418,8 +505,9 @@ class _DashboardScreenState extends State<DashboardScreen>
                                 Expanded(
                                   child: DashboardStatCard(
                                     title: "AVG SPEED",
-                                    value:
-                                        "${rideState.averageSpeedKmph.toStringAsFixed(1)} km/h",
+                                    value: _formatSpeedStat(
+                                      rideState.averageSpeedKmph,
+                                    ),
                                     icon: Icons.speed_outlined,
                                   ),
                                 ),
@@ -429,8 +517,9 @@ class _DashboardScreenState extends State<DashboardScreen>
                                 Expanded(
                                   child: DashboardStatCard(
                                     title: "MAX SPEED",
-                                    value:
-                                        "${rideState.maxSpeedKmph.toStringAsFixed(1)} km/h",
+                                    value: _formatSpeedStat(
+                                      rideState.maxSpeedKmph,
+                                    ),
                                     icon: Icons.trending_up_outlined,
                                   ),
                                 ),

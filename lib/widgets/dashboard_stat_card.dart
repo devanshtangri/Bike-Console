@@ -42,13 +42,17 @@ class DashboardStatCard extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  value,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 28,
-                    fontWeight: FontWeight.w500,
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    value,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
 
@@ -70,11 +74,7 @@ class DashboardStatCard extends StatelessWidget {
 
                     const SizedBox(width: 5),
 
-                    Icon(
-                      icon,
-                      color: Colors.white54,
-                      size: 13,
-                    ),
+                    Icon(icon, color: Colors.white54, size: 13),
                   ],
                 ),
               ],

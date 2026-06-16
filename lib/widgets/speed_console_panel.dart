@@ -2,13 +2,15 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
-class SpeedConsolePanel extends StatelessWidget {
+class SpeedConsolePanel extends StatefulWidget {
   final double speedKmph;
   final bool hazardEnabled;
   final bool leftArrowActive;
   final bool rightArrowActive;
   final bool controlsEnabled;
   final VoidCallback onHazardTap;
+  final VoidCallback onLeftArrowLongPress;
+  final VoidCallback onRightArrowLongPress;
 
   const SpeedConsolePanel({
     super.key,
@@ -18,130 +20,200 @@ class SpeedConsolePanel extends StatelessWidget {
     required this.rightArrowActive,
     required this.controlsEnabled,
     required this.onHazardTap,
+    required this.onLeftArrowLongPress,
+    required this.onRightArrowLongPress,
   });
 
   @override
+  State<SpeedConsolePanel> createState() => _SpeedConsolePanelState();
+}
+
+class _SpeedConsolePanelState extends State<SpeedConsolePanel>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _blinkController;
+
+  bool get _hasActiveArrow => widget.leftArrowActive || widget.rightArrowActive;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _blinkController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    );
+
+    _syncBlinkController();
+  }
+
+  @override
+  void didUpdateWidget(covariant SpeedConsolePanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.leftArrowActive != widget.leftArrowActive ||
+        oldWidget.rightArrowActive != widget.rightArrowActive) {
+      _syncBlinkController();
+    }
+  }
+
+  void _syncBlinkController() {
+    if (_hasActiveArrow) {
+      if (!_blinkController.isAnimating) {
+        _blinkController.repeat();
+      }
+    } else {
+      _blinkController.stop();
+      _blinkController.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _blinkController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final hazardTapHandler = controlsEnabled ? onHazardTap : null;
+    final hazardTapHandler = widget.controlsEnabled ? widget.onHazardTap : null;
 
-    return SizedBox(
-      height: 150,
-      child: Stack(
-        clipBehavior: Clip.none,
-        alignment: Alignment.topCenter,
-        children: [
-          Positioned(
-            top: 8,
-            left: 12,
-            right: 12,
-            child: ClipPath(
-              clipper: DashboardPanelClipper(),
-              child: Container(
-                height: 132,
-                color: Colors.black.withValues(alpha: 0.08),
-              ),
-            ),
-          ),
+    return AnimatedBuilder(
+      animation: _blinkController,
+      builder: (context, child) {
+        final blinkOn = !_hasActiveArrow || _blinkController.value < 0.55;
 
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: ClipPath(
-              clipper: DashboardPanelClipper(),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                child: CustomPaint(
-                  foregroundPainter: DashboardPanelBorderPainter(),
+        return SizedBox(
+          height: 150,
+          child: Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.topCenter,
+            children: [
+              Positioned(
+                top: 8,
+                left: 12,
+                right: 12,
+                child: ClipPath(
+                  clipper: DashboardPanelClipper(),
                   child: Container(
-                    height: 145,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF151515).withValues(alpha: 0.12),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 30),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Center(
-                              child: _IndicatorIcon(
-                                icon: Icons.arrow_back,
-                                isActive: leftArrowActive,
-                              ),
-                            ),
-                          ),
+                    height: 132,
+                    color: Colors.black.withValues(alpha: 0.08),
+                  ),
+                ),
+              ),
 
-                          Container(
-                            width: 1,
-                            height: 56,
-                            color: Colors.white.withValues(alpha: 0.12),
-                          ),
-
-                          Expanded(
-                            flex: 2,
-                            child: GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onTap: hazardTapHandler,
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    speedKmph.toStringAsFixed(0),
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 54,
-                                      fontWeight: FontWeight.w700,
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: ClipPath(
+                  clipper: DashboardPanelClipper(),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                    child: CustomPaint(
+                      foregroundPainter: DashboardPanelBorderPainter(),
+                      child: Container(
+                        height: 145,
+                        decoration: BoxDecoration(
+                          color: const Color(
+                            0xFF151515,
+                          ).withValues(alpha: 0.12),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 30),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Center(
+                                  child: GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onLongPress: widget.onLeftArrowLongPress,
+                                    child: _IndicatorIcon(
+                                      icon: Icons.arrow_back,
+                                      isActive:
+                                          widget.leftArrowActive && blinkOn,
                                     ),
                                   ),
+                                ),
+                              ),
 
-                                  Transform.translate(
-                                    offset: const Offset(0, -14),
-                                    child: const Text(
-                                      "km/h",
-                                      style: TextStyle(
-                                        color: Colors.white70,
-                                        fontSize: 14,
+                              Container(
+                                width: 1,
+                                height: 56,
+                                color: Colors.white.withValues(alpha: 0.12),
+                              ),
+
+                              Expanded(
+                                flex: 2,
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: hazardTapHandler,
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        widget.speedKmph.toStringAsFixed(0),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 54,
+                                          fontWeight: FontWeight.w700,
+                                        ),
                                       ),
+
+                                      Transform.translate(
+                                        offset: const Offset(0, -14),
+                                        child: const Text(
+                                          "km/h",
+                                          style: TextStyle(
+                                            color: Colors.white70,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+
+                              Container(
+                                width: 1,
+                                height: 56,
+                                color: Colors.white.withValues(alpha: 0.08),
+                              ),
+
+                              Expanded(
+                                child: Center(
+                                  child: GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onLongPress: widget.onRightArrowLongPress,
+                                    child: _IndicatorIcon(
+                                      icon: Icons.arrow_forward,
+                                      isActive:
+                                          widget.rightArrowActive && blinkOn,
                                     ),
                                   ),
-                                ],
+                                ),
                               ),
-                            ),
+                            ],
                           ),
-
-                          Container(
-                            width: 1,
-                            height: 56,
-                            color: Colors.white.withValues(alpha: 0.08),
-                          ),
-
-                          Expanded(
-                            child: Center(
-                              child: _IndicatorIcon(
-                                icon: Icons.arrow_forward,
-                                isActive: rightArrowActive,
-                              ),
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-          ),
 
-          Positioned(
-            bottom: 2,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: hazardTapHandler,
-              child: _HazardIcon(isActive: hazardEnabled),
-            ),
+              Positioned(
+                bottom: 2,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: hazardTapHandler,
+                  child: _HazardIcon(isActive: widget.hazardEnabled),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -157,39 +229,39 @@ class _IndicatorIcon extends StatelessWidget {
     final isLeft = icon == Icons.arrow_back;
 
     return SizedBox(
-      width: 64,
-      height: 48,
+      width: 48,
+      height: 42,
       child: Stack(
         alignment: Alignment.center,
         children: [
           if (isActive)
             CustomPaint(
-              size: const Size(52, 42),
+              size: const Size(40, 34),
               painter: _LongArrowPainter(
                 isLeft: isLeft,
                 color: Colors.greenAccent.withValues(alpha: 0.34),
-                strokeWidth: 13,
-                blurRadius: 18,
+                strokeWidth: 12,
+                blurRadius: 16,
               ),
             ),
 
           if (isActive)
             CustomPaint(
-              size: const Size(52, 42),
+              size: const Size(40, 34),
               painter: _LongArrowPainter(
                 isLeft: isLeft,
                 color: Colors.greenAccent.withValues(alpha: 0.60),
-                strokeWidth: 8,
-                blurRadius: 8,
+                strokeWidth: 7,
+                blurRadius: 7,
               ),
             ),
 
           CustomPaint(
-            size: const Size(52, 42),
+            size: const Size(40, 34),
             painter: _LongArrowPainter(
               isLeft: isLeft,
               color: isActive ? Colors.greenAccent : Colors.white24,
-              strokeWidth: isActive ? 4.8 : 3.6,
+              strokeWidth: isActive ? 4.5 : 3.4,
               blurRadius: 0,
             ),
           ),
@@ -238,8 +310,10 @@ class _LongArrowPainter extends CustomPainter {
 
       path.moveTo(tailEnd.dx, tailEnd.dy);
       path.lineTo(tip.dx, tip.dy);
+
       path.moveTo(tip.dx, tip.dy);
       path.lineTo(headTop.dx, headTop.dy);
+
       path.moveTo(tip.dx, tip.dy);
       path.lineTo(headBottom.dx, headBottom.dy);
     } else {
@@ -250,8 +324,10 @@ class _LongArrowPainter extends CustomPainter {
 
       path.moveTo(tailEnd.dx, tailEnd.dy);
       path.lineTo(tip.dx, tip.dy);
+
       path.moveTo(tip.dx, tip.dy);
       path.lineTo(headTop.dx, headTop.dy);
+
       path.moveTo(tip.dx, tip.dy);
       path.lineTo(headBottom.dx, headBottom.dy);
     }
@@ -344,14 +420,13 @@ class DashboardPanelClipper extends CustomClipper<Path> {
   }
 
   @override
-  bool shouldReclip(CustomClipper<Path> oldClipper) => false;
+  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
 }
 
 class DashboardPanelPathBuilder {
   static Path build(Size size) {
     const radius = 28.0;
     const notchDepth = 30.0;
-
     const notchRound = 10.0;
     const notchSideRound = 0.22;
 
@@ -368,6 +443,7 @@ class DashboardPanelPathBuilder {
     final topLeft = Offset(notchTopLeft, bodyBottom);
 
     final topRightExit = Offset.lerp(topRight, bottomRight, notchSideRound)!;
+
     final bottomRightEntry = Offset.lerp(
       bottomRight,
       topRight,
@@ -375,6 +451,7 @@ class DashboardPanelPathBuilder {
     )!;
 
     final bottomLeftExit = Offset.lerp(bottomLeft, topLeft, notchSideRound)!;
+
     final topLeftEntry = Offset.lerp(topLeft, bottomLeft, notchSideRound)!;
 
     final path = Path();
@@ -382,9 +459,11 @@ class DashboardPanelPathBuilder {
     path.moveTo(radius, 0);
 
     path.lineTo(size.width - radius, 0);
+
     path.quadraticBezierTo(size.width, 0, size.width, radius);
 
     path.lineTo(size.width, bodyBottom - radius);
+
     path.quadraticBezierTo(
       size.width,
       bodyBottom,
@@ -429,9 +508,11 @@ class DashboardPanelPathBuilder {
     );
 
     path.lineTo(radius, bodyBottom);
+
     path.quadraticBezierTo(0, bodyBottom, 0, bodyBottom - radius);
 
     path.lineTo(0, radius);
+
     path.quadraticBezierTo(0, 0, radius, 0);
 
     path.close();
