@@ -1,15 +1,16 @@
-import 'package:flutter/material.dart';
-import '../bike_data.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'settings_screen.dart';
-import '../widgets/speed_console_panel.dart';
-import '../widgets/dashboard_stat_card.dart';
-import '../widgets/ride_control_bar.dart';
-import '../widgets/hex_settings_button.dart';
-import '../map_styles/dark_map_style.dart';
-import 'package:geolocator/geolocator.dart';
 import 'dart:ui';
-import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+
+import '../bike_data.dart';
+import '../controllers/map_tracking_controller.dart';
+import '../map_styles/dark_map_style.dart';
+import '../widgets/dashboard_stat_card.dart';
+import '../widgets/hex_settings_button.dart';
+import '../widgets/ride_control_bar.dart';
+import '../widgets/speed_console_panel.dart';
+import 'settings_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -18,26 +19,18 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen>
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   late final VoidCallback bikeListener;
-
-  GoogleMapController? _mapController;
-  StreamSubscription<Position>? _positionSubscription;
-
-  LatLng? _currentLatLng;
-  double _currentHeading = 0;
-  bool _hasCenteredOnStartup = false;
-
-  bool _followUser = true;
-  bool _isProgrammaticCameraMove = false;
-  LatLng? _lastFollowCameraTarget;
-
-  BitmapDescriptor? _currentLocationIcon;
-  final List<LatLng> _routePoints = [];
+  late final MapTrackingController _mapTrackingController;
+  late final AnimationController _recenterPulseController;
+  late final Animation<double> _recenterPulseAnimation;
 
   @override
   void initState() {
     super.initState();
+
+    WidgetsBinding.instance.addObserver(this);
 
     bikeListener = () {
       if (mounted) {
@@ -45,216 +38,47 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     };
 
+    _recenterPulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    )..repeat(reverse: true);
+
+    _recenterPulseAnimation = Tween<double>(begin: 0.55, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _recenterPulseController,
+        curve: Curves.easeInOut,
+      ),
+    );
+    _mapTrackingController = MapTrackingController();
+    _mapTrackingController.addListener(_onMapTrackingChanged);
+    _mapTrackingController.initialize();
+
     BikeData.instance.addListener(bikeListener);
-    _startLocationTracking();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+
     BikeData.instance.removeListener(bikeListener);
-    _positionSubscription?.cancel();
-    _mapController?.dispose();
+
+    _mapTrackingController.removeListener(_onMapTrackingChanged);
+    _mapTrackingController.dispose();
+    _recenterPulseController.dispose();
+
     super.dispose();
   }
 
-  Future<bool> _ensureLocationPermission() async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-
-    if (!serviceEnabled) {
-      return false;
-    }
-
-    LocationPermission permission = await Geolocator.checkPermission();
-
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      return false;
-    }
-
-    return true;
+  void _onMapTrackingChanged() {
+    if (!mounted) return;
+    setState(() {});
   }
 
-  Future<void> _centerOnCurrentLocation() async {
-    final hasPermission = await _ensureLocationPermission();
-
-    if (!hasPermission) {
-      return;
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _mapTrackingController.markAppResumed();
     }
-
-    final position = await Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
-    );
-
-    final target = LatLng(position.latitude, position.longitude);
-
-    _followUser = true;
-    await _animateMapTo(target);
-  }
-
-  Future<void> _animateMapTo(LatLng target, {double zoom = 16}) async {
-    if (_mapController == null) return;
-
-    _isProgrammaticCameraMove = true;
-    _lastFollowCameraTarget = target;
-
-    try {
-      await _mapController!.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(target: target, zoom: zoom, bearing: 0, tilt: 0),
-        ),
-      );
-    } finally {
-      Future.delayed(const Duration(milliseconds: 350), () {
-        if (mounted) {
-          _isProgrammaticCameraMove = false;
-        }
-      });
-    }
-  }
-
-  Future<void> _maybeFollowUser(LatLng nextPoint) async {
-    if (!_followUser || _mapController == null) {
-      return;
-    }
-
-    if (_lastFollowCameraTarget == null) {
-      await _animateMapTo(nextPoint);
-      return;
-    }
-
-    final distance = Geolocator.distanceBetween(
-      _lastFollowCameraTarget!.latitude,
-      _lastFollowCameraTarget!.longitude,
-      nextPoint.latitude,
-      nextPoint.longitude,
-    );
-
-    if (distance >= 18) {
-      await _animateMapTo(nextPoint);
-    }
-  }
-
-  Future<void> _startLocationTracking() async {
-    final hasPermission = await _ensureLocationPermission();
-
-    if (!hasPermission) {
-      return;
-    }
-
-    _currentLocationIcon = await _createCurrentLocationIcon();
-
-    _positionSubscription =
-        Geolocator.getPositionStream(
-          locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.high,
-            distanceFilter: 2,
-          ),
-        ).listen((position) async {
-          final nextPoint = LatLng(position.latitude, position.longitude);
-
-          setState(() {
-            _currentLatLng = nextPoint;
-
-            if (position.heading >= 0) {
-              _currentHeading = position.heading;
-            }
-
-            if (_routePoints.isEmpty || _routePoints.last != nextPoint) {
-              _routePoints.add(nextPoint);
-            }
-          });
-
-          if (!_hasCenteredOnStartup && _mapController != null) {
-            _hasCenteredOnStartup = true;
-            _followUser = true;
-            await _animateMapTo(nextPoint);
-            return;
-          }
-
-          await _maybeFollowUser(nextPoint);
-        });
-  }
-
-  Set<Marker> _buildCurrentLocationMarkers() {
-    if (_currentLatLng == null) {
-      return {};
-    }
-
-    return {
-      Marker(
-        markerId: const MarkerId("current_location"),
-        position: _currentLatLng!,
-        icon:
-            _currentLocationIcon ??
-            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
-        anchor: const Offset(0.5, 0.67),
-        rotation: _currentHeading,
-        flat: true,
-        zIndexInt: 10,
-      ),
-    };
-  }
-
-  Set<Polyline> _buildRoutePolylines() {
-    if (_routePoints.length < 2) {
-      return {};
-    }
-
-    return {
-      Polyline(
-        polylineId: const PolylineId("ride_trail"),
-        points: _routePoints,
-        color: const Color(0xFF23C48E),
-        width: 5,
-        zIndex: 5,
-        geodesic: true,
-      ),
-    };
-  }
-
-  Future<BitmapDescriptor> _createCurrentLocationIcon() async {
-    const logicalWidth = 24.0;
-    const logicalHeight = 36.0;
-    const pixelRatio = 4.0;
-
-    final imageWidth = (logicalWidth * pixelRatio).toInt();
-    final imageHeight = (logicalHeight * pixelRatio).toInt();
-
-    final recorder = PictureRecorder();
-    final canvas = Canvas(recorder);
-
-    canvas.scale(pixelRatio, pixelRatio);
-
-    final greenPaint = Paint()
-      ..color = const Color(0xFF23C48E)
-      ..style = PaintingStyle.fill
-      ..isAntiAlias = true
-      ..filterQuality = FilterQuality.high;
-
-    final trianglePath = Path()
-      ..moveTo(logicalWidth * 0.5, 0)
-      ..lineTo(logicalWidth * 0.933, logicalHeight * 0.5)
-      ..lineTo(logicalWidth * 0.067, logicalHeight * 0.5)
-      ..close();
-
-    final circleCenter = Offset(logicalWidth * 0.5, logicalHeight * 0.667);
-
-    final circleRadius = logicalWidth * 0.5;
-
-    canvas.drawCircle(circleCenter, circleRadius, greenPaint);
-    canvas.drawPath(trianglePath, greenPaint);
-
-    final picture = recorder.endRecording();
-    final image = await picture.toImage(imageWidth, imageHeight);
-    final byteData = await image.toByteData(format: ImageByteFormat.png);
-
-    final bytes = byteData!.buffer.asUint8List();
-
-    return BitmapDescriptor.bytes(bytes, imagePixelRatio: pixelRatio);
   }
 
   @override
@@ -333,21 +157,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               target: LatLng(28.6139, 77.2090),
                               zoom: 15,
                             ),
-                            onMapCreated: (controller) async {
-                              _mapController = controller;
-
-                              if (_currentLatLng != null &&
-                                  !_hasCenteredOnStartup) {
-                                _hasCenteredOnStartup = true;
-                                _followUser = true;
-                                await _animateMapTo(_currentLatLng!);
-                              }
+                            onMapCreated: (controller) {
+                              _mapTrackingController.attachMapController(
+                                controller,
+                              );
                             },
                             style: darkMapStyle,
                             onCameraMoveStarted: () {
-                              if (!_isProgrammaticCameraMove) {
-                                _followUser = false;
-                              }
+                              _mapTrackingController.onUserMovedMap();
                             },
                             myLocationEnabled: false,
                             myLocationButtonEnabled: false,
@@ -356,8 +173,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             rotateGesturesEnabled: false,
                             tiltGesturesEnabled: false,
                             padding: const EdgeInsets.only(bottom: 115),
-                            markers: _buildCurrentLocationMarkers(),
-                            polylines: _buildRoutePolylines(),
+                            markers: _mapTrackingController.markers,
+                            polylines: _mapTrackingController.polylines,
                           ),
                         ),
                       ),
@@ -365,7 +182,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         top: 14,
                         right: 26,
                         child: GestureDetector(
-                          onTap: _centerOnCurrentLocation,
+                          onTap: _mapTrackingController.recenter,
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(18),
                             child: BackdropFilter(
@@ -383,10 +200,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     width: 1,
                                   ),
                                 ),
-                                child: const Icon(
-                                  Icons.my_location_rounded,
-                                  color: Colors.greenAccent,
-                                  size: 25,
+                                child: AnimatedBuilder(
+                                  animation: _recenterPulseAnimation,
+                                  builder: (context, child) {
+                                    final recenterEnabled =
+                                        _mapTrackingController
+                                            .followModeEnabled;
+
+                                    return Icon(
+                                      Icons.my_location_rounded,
+                                      color: recenterEnabled
+                                          ? const Color(0xFF23C48E).withValues(
+                                              alpha:
+                                                  _recenterPulseAnimation.value,
+                                            )
+                                          : Colors.white70,
+                                      size: 25,
+                                    );
+                                  },
                                 ),
                               ),
                             ),
