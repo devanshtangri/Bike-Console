@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -35,6 +36,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   int? _countdownValue;
   bool _debugLeftPhysical = false;
   bool _debugRightPhysical = false;
+  bool _debugMoving = true;
+  Timer? _debugMovingPacketTimer;
 
   @override
   void initState() {
@@ -76,6 +79,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     _mapTrackingController.removeListener(_onMapTrackingChanged);
     _mapTrackingController.dispose();
+    _debugMovingPacketTimer?.cancel();
     _recenterPulseController.dispose();
 
     super.dispose();
@@ -114,6 +118,8 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   void _injectDebugBikeData() {
     HapticFeedback.mediumImpact();
+    _debugMoving = true;
+    _debugMovingPacketTimer?.cancel();
 
     _debugLeftPhysical = false;
     _debugRightPhysical = false;
@@ -179,8 +185,77 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
+  void _toggleDebugMovingPacket() {
+    HapticFeedback.selectionClick();
+
+    widget.bikeConsoleController.connectionController.setConnectionState(
+      ConsoleConnectionState.connected,
+    );
+
+    setState(() {
+      _debugMoving = !_debugMoving;
+    });
+
+    _debugMovingPacketTimer?.cancel();
+
+    if (_debugMoving) {
+      _sendDebugMovingPacket(isMoving: true);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Debug motion: moving TRUE"),
+          duration: Duration(milliseconds: 800),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+
+      return;
+    }
+
+    _sendDebugMovingPacket(isMoving: false);
+
+    _debugMovingPacketTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+
+      final rideState =
+          widget.bikeConsoleController.rideSessionController.state;
+
+      if (rideState.rideState == RideState.stopped) {
+        _debugMovingPacketTimer?.cancel();
+        return;
+      }
+
+      _sendDebugMovingPacket(isMoving: false);
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Debug motion: moving FALSE packets started"),
+        duration: Duration(milliseconds: 900),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _sendDebugMovingPacket({required bool isMoving}) {
+    final rideState = widget.bikeConsoleController.rideSessionController.state;
+
+    widget.bikeConsoleController.injectDebugSensorPacket(
+      rpm: isMoving ? 90 : 0,
+      distanceKm: rideState.distanceKm > 0 ? rideState.distanceKm : 0.25,
+      isMoving: isMoving,
+      leftPhysical: _debugLeftPhysical,
+      rightPhysical: _debugRightPhysical,
+      hazardOutput: rideState.hazardEnabled,
+      consoleRideActive: rideState.isRideActive,
+    );
+  }
+
   void _injectDebugDisconnect() {
     HapticFeedback.mediumImpact();
+
+    _debugMovingPacketTimer?.cancel();
+    _debugMoving = true;
 
     widget.bikeConsoleController.connectionController.setConnectionState(
       ConsoleConnectionState.disconnected,
@@ -493,6 +568,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                                       0,
                                     ),
                                     icon: Icons.rotate_right_outlined,
+                                    onLongPress: _toggleDebugMovingPacket,
                                   ),
                                 ),
                               ],
@@ -567,19 +643,15 @@ class _DashboardScreenState extends State<DashboardScreen>
                                         height: 1,
                                       ),
                                       style: TextStyle(
-                                        color: _countdownValue == 0
-                                            ? AppColors.premiumGreen
-                                            : Colors.white,
+                                        color: Colors.white,
                                         fontSize: 120,
                                         fontWeight: FontWeight.w800,
                                         height: 1,
                                         shadows: [
                                           Shadow(
-                                            color:
-                                                (_countdownValue == 0
-                                                        ? AppColors.premiumGreen
-                                                        : Colors.white)
-                                                    .withValues(alpha: 0.45),
+                                            color: Colors.white.withValues(
+                                              alpha: 0.45,
+                                            ),
                                             blurRadius: 30,
                                           ),
                                         ],
