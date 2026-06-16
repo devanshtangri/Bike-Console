@@ -5,6 +5,8 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../bike_data.dart';
 import '../controllers/map_tracking_controller.dart';
+import '../controllers/bike_console_controller.dart';
+import '../models/ride_models.dart';
 import '../map_styles/dark_map_style.dart';
 import '../widgets/dashboard_stat_card.dart';
 import '../widgets/hex_settings_button.dart';
@@ -12,9 +14,12 @@ import '../widgets/ride_control_bar.dart';
 import '../widgets/speed_console_panel.dart';
 import 'settings_screen.dart';
 import '../theme/app_colors.dart';
+import 'package:flutter/services.dart';
 
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({super.key});
+  const DashboardScreen({super.key, required this.bikeConsoleController});
+
+  final BikeConsoleController bikeConsoleController;
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -55,6 +60,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     _mapTrackingController.initialize();
 
     BikeData.instance.addListener(bikeListener);
+    widget.bikeConsoleController.addListener(bikeListener);
   }
 
   @override
@@ -62,6 +68,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     WidgetsBinding.instance.removeObserver(this);
 
     BikeData.instance.removeListener(bikeListener);
+    widget.bikeConsoleController.removeListener(bikeListener);
 
     _mapTrackingController.removeListener(_onMapTrackingChanged);
     _mapTrackingController.dispose();
@@ -75,10 +82,33 @@ class _DashboardScreenState extends State<DashboardScreen>
     setState(() {});
   }
 
-  bool _isBikeDeviceConnected() {
-    final status = BikeData.instance.status.toLowerCase();
+  void _injectDebugBikeData() {
+    HapticFeedback.mediumImpact();
+    widget.bikeConsoleController.connectionController.setConnectionState(
+      ConsoleConnectionState.connected,
+    );
 
-    return status.contains("connected") && !status.contains("disconnected");
+    widget.bikeConsoleController.injectDebugSensorPacket(
+      rpm: 90,
+      distanceKm: 0.25,
+      isMoving: true,
+      leftPhysical: false,
+      rightPhysical: false,
+      hazardOutput: false,
+      consoleRideActive: true,
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Debug packet injected: 90 RPM, 0.25 km"),
+        duration: Duration(milliseconds: 900),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  bool _isBikeDeviceConnected() {
+    return widget.bikeConsoleController.connectionController.isConnected;
   }
 
   Widget _buildDeviceConnectedBadge() {
@@ -131,6 +161,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   Widget build(BuildContext context) {
     final bike = BikeData.instance;
+    final rideState = widget.bikeConsoleController.rideSessionController.state;
     final screenWidth = MediaQuery.of(context).size.width;
 
     return Scaffold(
@@ -143,12 +174,15 @@ class _DashboardScreenState extends State<DashboardScreen>
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    "Bike Console",
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
+                  GestureDetector(
+                    onLongPress: _injectDebugBikeData,
+                    child: const Text(
+                      "Bike Console",
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
 
@@ -302,7 +336,10 @@ class _DashboardScreenState extends State<DashboardScreen>
                         left: screenWidth * 0.03,
                         right: screenWidth * 0.03,
                         top: mapHeight - speedPanelHeight,
-                        child: SpeedConsolePanel(bike: bike),
+                        child: SpeedConsolePanel(
+                          bike: bike,
+                          speedKmph: rideState.currentSpeedKmph,
+                        ),
                       ),
 
                       Positioned(
@@ -318,7 +355,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                                   child: DashboardStatCard(
                                     title: "DISTANCE",
                                     value:
-                                        "${bike.distance?.toStringAsFixed(2) ?? "0.00"} km",
+                                        "${rideState.distanceKm.toStringAsFixed(2)} km",
                                     icon: Icons.route_outlined,
                                   ),
                                 ),
@@ -328,7 +365,9 @@ class _DashboardScreenState extends State<DashboardScreen>
                                 Expanded(
                                   child: DashboardStatCard(
                                     title: "RPM",
-                                    value: "${bike.rpm ?? 0}",
+                                    value: rideState.currentRpm.toStringAsFixed(
+                                      0,
+                                    ),
                                     icon: Icons.rotate_right_outlined,
                                   ),
                                 ),
@@ -343,7 +382,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                                   child: DashboardStatCard(
                                     title: "AVG SPEED",
                                     value:
-                                        "${bike.avgSpeed?.toStringAsFixed(1) ?? "0.0"} km/h",
+                                        "${rideState.averageSpeedKmph.toStringAsFixed(1)} km/h",
                                     icon: Icons.speed_outlined,
                                   ),
                                 ),
@@ -353,7 +392,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                                 Expanded(
                                   child: DashboardStatCard(
                                     title: "MAX SPEED",
-                                    value: "${bike.maxSpeed ?? 0} km/h",
+                                    value:
+                                        "${rideState.maxSpeedKmph.toStringAsFixed(1)} km/h",
                                     icon: Icons.trending_up_outlined,
                                   ),
                                 ),

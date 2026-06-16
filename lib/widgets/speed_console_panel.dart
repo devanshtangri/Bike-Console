@@ -5,8 +5,13 @@ import '../bike_data.dart';
 
 class SpeedConsolePanel extends StatelessWidget {
   final BikeData bike;
+  final double speedKmph;
 
-  const SpeedConsolePanel({super.key, required this.bike});
+  const SpeedConsolePanel({
+    super.key,
+    required this.bike,
+    required this.speedKmph,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -69,7 +74,7 @@ class SpeedConsolePanel extends StatelessWidget {
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 Text(
-                                  "${bike.speed ?? 0}",
+                                  speedKmph.toStringAsFixed(0),
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 54,

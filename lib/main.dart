@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+
 import 'ble_service.dart';
+import 'controllers/bike_console_controller.dart';
 import 'screens/dashboard_screen.dart';
 
 void main() async {
@@ -8,11 +10,23 @@ void main() async {
 
   await BleService.instance.init();
 
-  runApp(const BikeConsoleApp());
+  final bikeConsoleController = BikeConsoleController();
+  await bikeConsoleController.initialize();
+
+  runApp(
+    BikeConsoleApp(
+      bikeConsoleController: bikeConsoleController,
+    ),
+  );
 }
 
 class BikeConsoleApp extends StatelessWidget {
-  const BikeConsoleApp({super.key});
+  const BikeConsoleApp({
+    super.key,
+    required this.bikeConsoleController,
+  });
+
+  final BikeConsoleController bikeConsoleController;
 
   @override
   Widget build(BuildContext context) {
@@ -27,9 +41,9 @@ class BikeConsoleApp extends StatelessWidget {
           brightness: Brightness.dark,
         ),
       ),
-      home: const DashboardScreen(),
+      home: DashboardScreen(
+        bikeConsoleController: bikeConsoleController,
+      ),
     );
   }
 }
-
-//AIzaSyCyeO150bR12aXE22JNeKVnKKxN5WTWaLw
