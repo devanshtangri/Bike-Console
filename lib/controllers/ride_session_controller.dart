@@ -122,7 +122,10 @@ class RideSessionController extends ChangeNotifier {
       distanceKm: nextDistanceKm,
       maxSpeedKmph: nextMaxSpeed,
       averageSpeedKmph: nextAverageSpeed,
+      leftPhysicalIndicator: packet.leftPhysical,
+      rightPhysicalIndicator: packet.rightPhysical,
     );
+
     _persistSnapshotFireAndForget();
     notifyListeners();
   }
@@ -231,6 +234,7 @@ class RideSessionController extends ChangeNotifier {
       accumulatedPausedMs:
           _state.accumulatedPausedMs + completedPauseMs.clamp(0, 1 << 31),
     );
+
     onCommand?.call(BikeCommand.resume());
     _persistSnapshotFireAndForget(force: true);
 

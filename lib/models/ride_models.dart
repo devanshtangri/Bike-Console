@@ -95,6 +95,8 @@ class RideSessionState {
     required this.currentRpm,
     required this.speedSource,
     required this.hazardEnabled,
+    required this.leftPhysicalIndicator,
+    required this.rightPhysicalIndicator,
   });
 
   final RideState rideState;
@@ -137,6 +139,10 @@ class RideSessionState {
   /// This should stay true even if physical indicators temporarily override output.
   final bool hazardEnabled;
 
+  /// Physical indicator switch states received from ESP32.
+  final bool leftPhysicalIndicator;
+  final bool rightPhysicalIndicator;
+
   factory RideSessionState.initial() {
     return const RideSessionState(
       rideState: RideState.stopped,
@@ -151,6 +157,8 @@ class RideSessionState {
       currentRpm: 0,
       speedSource: SpeedSource.none,
       hazardEnabled: false,
+      leftPhysicalIndicator: false,
+      rightPhysicalIndicator: false,
     );
   }
 
@@ -159,6 +167,9 @@ class RideSessionState {
   bool get isRunning => rideState == RideState.running;
   bool get isPaused => rideState == RideState.paused;
   bool get isRideActive => rideState != RideState.stopped;
+
+  bool get leftArrowActive => leftPhysicalIndicator || hazardEnabled;
+  bool get rightArrowActive => rightPhysicalIndicator || hazardEnabled;
 
   RideSessionState copyWith({
     RideState? rideState,
@@ -175,6 +186,8 @@ class RideSessionState {
     double? currentRpm,
     SpeedSource? speedSource,
     bool? hazardEnabled,
+    bool? leftPhysicalIndicator,
+    bool? rightPhysicalIndicator,
   }) {
     return RideSessionState(
       rideState: rideState ?? this.rideState,
@@ -193,6 +206,10 @@ class RideSessionState {
       currentRpm: currentRpm ?? this.currentRpm,
       speedSource: speedSource ?? this.speedSource,
       hazardEnabled: hazardEnabled ?? this.hazardEnabled,
+      leftPhysicalIndicator:
+          leftPhysicalIndicator ?? this.leftPhysicalIndicator,
+      rightPhysicalIndicator:
+          rightPhysicalIndicator ?? this.rightPhysicalIndicator,
     );
   }
 }

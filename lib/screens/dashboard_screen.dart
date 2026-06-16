@@ -188,7 +188,6 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   @override
   Widget build(BuildContext context) {
-    final bike = BikeData.instance;
     final rideState = widget.bikeConsoleController.rideSessionController.state;
     final screenWidth = MediaQuery.of(context).size.width;
 
@@ -365,8 +364,18 @@ class _DashboardScreenState extends State<DashboardScreen>
                         right: screenWidth * 0.03,
                         top: mapHeight - speedPanelHeight,
                         child: SpeedConsolePanel(
-                          bike: bike,
                           speedKmph: rideState.currentSpeedKmph,
+                          hazardEnabled: rideState.hazardEnabled,
+                          leftArrowActive: rideState.leftArrowActive,
+                          rightArrowActive: rideState.rightArrowActive,
+                          controlsEnabled: widget
+                              .bikeConsoleController
+                              .connectionController
+                              .isConnected,
+                          onHazardTap: widget
+                              .bikeConsoleController
+                              .rideSessionController
+                              .toggleHazard,
                         ),
                       ),
 

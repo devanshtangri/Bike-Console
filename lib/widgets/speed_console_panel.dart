@@ -1,20 +1,29 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import '../bike_data.dart';
 
 class SpeedConsolePanel extends StatelessWidget {
-  final BikeData bike;
   final double speedKmph;
+  final bool hazardEnabled;
+  final bool leftArrowActive;
+  final bool rightArrowActive;
+  final bool controlsEnabled;
+  final VoidCallback onHazardTap;
 
   const SpeedConsolePanel({
     super.key,
-    required this.bike,
     required this.speedKmph,
+    required this.hazardEnabled,
+    required this.leftArrowActive,
+    required this.rightArrowActive,
+    required this.controlsEnabled,
+    required this.onHazardTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final hazardTapHandler = controlsEnabled ? onHazardTap : null;
+
     return SizedBox(
       height: 150,
       child: Stack(
@@ -57,7 +66,7 @@ class SpeedConsolePanel extends StatelessWidget {
                             child: Center(
                               child: _IndicatorIcon(
                                 icon: Icons.arrow_back,
-                                isActive: bike.leftIndicator,
+                                isActive: leftArrowActive,
                               ),
                             ),
                           ),
@@ -70,29 +79,33 @@ class SpeedConsolePanel extends StatelessWidget {
 
                           Expanded(
                             flex: 2,
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  speedKmph.toStringAsFixed(0),
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 54,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-
-                                Transform.translate(
-                                  offset: const Offset(0, -14),
-                                  child: const Text(
-                                    "km/h",
-                                    style: TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 14,
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: hazardTapHandler,
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    speedKmph.toStringAsFixed(0),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 54,
+                                      fontWeight: FontWeight.w700,
                                     ),
                                   ),
-                                ),
-                              ],
+
+                                  Transform.translate(
+                                    offset: const Offset(0, -14),
+                                    child: const Text(
+                                      "km/h",
+                                      style: TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
 
@@ -106,7 +119,7 @@ class SpeedConsolePanel extends StatelessWidget {
                             child: Center(
                               child: _IndicatorIcon(
                                 icon: Icons.arrow_forward,
-                                isActive: bike.rightIndicator,
+                                isActive: rightArrowActive,
                               ),
                             ),
                           ),
@@ -119,7 +132,14 @@ class SpeedConsolePanel extends StatelessWidget {
             ),
           ),
 
-          Positioned(bottom: 2, child: _HazardIcon(isActive: bike.hazard)),
+          Positioned(
+            bottom: 2,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: hazardTapHandler,
+              child: _HazardIcon(isActive: hazardEnabled),
+            ),
+          ),
         ],
       ),
     );
