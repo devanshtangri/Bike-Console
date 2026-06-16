@@ -11,6 +11,7 @@ import '../widgets/hex_settings_button.dart';
 import '../widgets/ride_control_bar.dart';
 import '../widgets/speed_console_panel.dart';
 import 'settings_screen.dart';
+import '../theme/app_colors.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -210,7 +211,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                                     return Icon(
                                       Icons.my_location_rounded,
                                       color: recenterEnabled
-                                          ? const Color(0xFF23C48E).withValues(
+                                          ? AppColors.premiumGreen.withValues(
                                               alpha:
                                                   _recenterPulseAnimation.value,
                                             )

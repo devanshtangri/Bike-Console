@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
+import '../theme/app_colors.dart';
 
 class HexSettingsButton extends StatelessWidget {
   final VoidCallback onTap;
 
-  const HexSettingsButton({
-    super.key,
-    required this.onTap,
-  });
+  const HexSettingsButton({super.key, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -16,9 +14,7 @@ class HexSettingsButton extends StatelessWidget {
       child: SizedBox(
         width: 34,
         height: 34,
-        child: CustomPaint(
-          painter: _HexSettingsPainter(),
-        ),
+        child: CustomPaint(painter: _HexSettingsPainter()),
       ),
     );
   }
@@ -38,7 +34,7 @@ class _HexSettingsPainter extends CustomPainter {
       ..strokeJoin = StrokeJoin.round;
 
     final dotPaint = Paint()
-      ..color = Colors.greenAccent
+      ..color = AppColors.premiumGreen
       ..style = PaintingStyle.fill;
 
     final path = Path();

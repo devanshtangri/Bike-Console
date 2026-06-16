@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import '../theme/app_colors.dart';
 
 class MapTrackingController extends ChangeNotifier {
   GoogleMapController? _mapController;
@@ -53,7 +54,7 @@ class MapTrackingController extends ChangeNotifier {
       Polyline(
         polylineId: const PolylineId("ride_trail"),
         points: _routePoints,
-        color: const Color(0xFF23C48E),
+        color: AppColors.premiumGreen,
         width: 5,
         zIndex: 5,
         geodesic: true,
@@ -229,7 +230,7 @@ class MapTrackingController extends ChangeNotifier {
     canvas.scale(pixelRatio, pixelRatio);
 
     final greenPaint = Paint()
-      ..color = const Color(0xFF23C48E)
+      ..color = AppColors.premiumGreen
       ..style = PaintingStyle.fill
       ..isAntiAlias = true
       ..filterQuality = FilterQuality.high;
