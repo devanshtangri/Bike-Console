@@ -1,5 +1,8 @@
 import 'dart:ui';
+
 import 'package:flutter/material.dart';
+
+enum RideControlState { stopped, running, paused }
 
 class RideControlBar extends StatefulWidget {
   const RideControlBar({super.key});
@@ -9,7 +12,10 @@ class RideControlBar extends StatefulWidget {
 }
 
 class _RideControlBarState extends State<RideControlBar> {
-  bool isPaused = false;
+  RideControlState _rideState = RideControlState.stopped;
+
+  bool get _isStopped => _rideState == RideControlState.stopped;
+  bool get _isPaused => _rideState == RideControlState.paused;
 
   Future<void> _showStopConfirmation() async {
     final shouldStop = await showDialog<bool>(
@@ -51,7 +57,7 @@ class _RideControlBarState extends State<RideControlBar> {
 
     if (shouldStop == true) {
       setState(() {
-        isPaused = false;
+        _rideState = RideControlState.stopped;
       });
 
       // Later: reset ride data / save ride / navigate to summary.
@@ -64,9 +70,11 @@ class _RideControlBarState extends State<RideControlBar> {
       borderRadius: BorderRadius.circular(24),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: Container(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 420),
+          curve: Curves.easeOutCubic,
           height: 78,
-          padding: const EdgeInsets.symmetric(horizontal: 20),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
             color: const Color(0xFF181818).withValues(alpha: 0.72),
             borderRadius: BorderRadius.circular(24),
@@ -82,13 +90,54 @@ class _RideControlBarState extends State<RideControlBar> {
               ),
             ],
           ),
-          child: Row(
+          child: Align(
+            alignment: Alignment.center,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 420),
+              reverseDuration: const Duration(milliseconds: 320),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: (child, animation) {
+                return FadeTransition(
+                  opacity: animation,
+                  child: SizeTransition(
+                    sizeFactor: animation,
+                    axis: Axis.horizontal,
+                    alignment: Alignment.centerLeft,
+                    child: child,
+                  ),
+                );
+              },
+              child: _isStopped ? _stoppedLayout() : _activeRideLayout(),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _stoppedLayout() {
+    return SizedBox(
+      key: const ValueKey("stopped_layout"),
+      height: 54,
+      width: double.infinity,
+      child: _startButton(),
+    );
+  }
+
+  Widget _activeRideLayout() {
+    return Row(
+      key: const ValueKey("active_ride_layout"),
+      children: [
+        AnimatedOpacity(
+          opacity: _isStopped ? 0 : 1,
+          duration: const Duration(milliseconds: 360),
+          curve: Curves.easeOutCubic,
+          child: const Row(
             children: [
-              const Icon(Icons.timer_outlined, color: Colors.white),
-
-              const SizedBox(width: 12),
-
-              const Text(
+              Icon(Icons.timer_outlined, color: Colors.white),
+              SizedBox(width: 12),
+              Text(
                 "2:15:02",
                 style: TextStyle(
                   color: Colors.white,
@@ -96,13 +145,65 @@ class _RideControlBarState extends State<RideControlBar> {
                   fontWeight: FontWeight.w500,
                 ),
               ),
+            ],
+          ),
+        ),
 
-              const SizedBox(width: 16),
+        const SizedBox(width: 16),
 
-              Expanded(
-                child: SizedBox(
-                  height: 54,
-                  child: isPaused ? _pausedControls() : _pauseButton(),
+        Expanded(
+          child: SizedBox(
+            height: 54,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 360),
+              reverseDuration: const Duration(milliseconds: 300),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: (child, animation) {
+                return FadeTransition(
+                  opacity: animation,
+                  child: SizeTransition(
+                    sizeFactor: animation,
+                    axis: Axis.horizontal,
+                    alignment: Alignment.centerRight,
+                    child: child,
+                  ),
+                );
+              },
+              child: _isPaused ? _pausedControls() : _pauseButton(),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _startButton() {
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _rideState = RideControlState.running;
+        });
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 420),
+        curve: Curves.easeOutCubic,
+        decoration: BoxDecoration(
+          color: const Color(0xFF23C48E),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Center(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.play_arrow_rounded, color: Colors.black, size: 28),
+              SizedBox(width: 8),
+              Text(
+                "Start",
+                style: TextStyle(
+                  color: Colors.black,
+                  fontSize: 21,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ],
@@ -114,15 +215,18 @@ class _RideControlBarState extends State<RideControlBar> {
 
   Widget _pauseButton() {
     return GestureDetector(
+      key: const ValueKey("pause_button"),
       onTap: () {
         setState(() {
-          isPaused = true;
+          _rideState = RideControlState.paused;
         });
       },
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 360),
+        curve: Curves.easeOutCubic,
         decoration: BoxDecoration(
           color: const Color(0xFFFFC928),
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(12),
         ),
         child: const Center(
           child: Row(
@@ -146,10 +250,13 @@ class _RideControlBarState extends State<RideControlBar> {
   }
 
   Widget _pausedControls() {
-    return Container(
+    return AnimatedContainer(
+      key: const ValueKey("paused_controls"),
+      duration: const Duration(milliseconds: 360),
+      curve: Curves.easeOutCubic,
       decoration: BoxDecoration(
-        color: Colors.greenAccent,
-        borderRadius: BorderRadius.circular(999),
+        color: const Color(0xFF23C48E),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         children: [
@@ -158,7 +265,7 @@ class _RideControlBarState extends State<RideControlBar> {
             child: GestureDetector(
               onTap: () {
                 setState(() {
-                  isPaused = false;
+                  _rideState = RideControlState.running;
                 });
               },
               child: const Center(
@@ -185,14 +292,35 @@ class _RideControlBarState extends State<RideControlBar> {
             ),
           ),
 
-          Container(width: 1, height: 32, color: Colors.black26),
+          AnimatedOpacity(
+            opacity: _isPaused ? 1 : 0,
+            duration: const Duration(milliseconds: 280),
+            child: Container(width: 1, height: 32, color: Colors.black26),
+          ),
 
           Expanded(
             flex: 3,
             child: GestureDetector(
               onTap: _showStopConfirmation,
-              child: const Center(
-                child: Icon(Icons.stop_rounded, color: Colors.red, size: 27),
+              child: Center(
+                child: AnimatedScale(
+                  scale: _isPaused ? 1 : 0.85,
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOutBack,
+                  child: Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.stop_rounded,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
