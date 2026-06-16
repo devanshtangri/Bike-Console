@@ -114,22 +114,7 @@ class SpeedConsolePanel extends StatelessWidget {
             ),
           ),
 
-          Positioned(
-            bottom: 14,
-            child: Icon(
-              Icons.warning_amber_rounded,
-              color: bike.hazard ? Colors.redAccent : Colors.white24,
-              size: 30,
-              shadows: bike.hazard
-                  ? [
-                      Shadow(
-                        color: Colors.redAccent.withValues(alpha: 0.75),
-                        blurRadius: 14,
-                      ),
-                    ]
-                  : null,
-            ),
-          ),
+          Positioned(bottom: 2, child: _HazardIcon(isActive: bike.hazard)),
         ],
       ),
     );
@@ -144,18 +129,166 @@ class _IndicatorIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Icon(
-      icon,
-      color: isActive ? Colors.greenAccent : Colors.white24,
-      size: 36,
-      shadows: isActive
-          ? [
-              Shadow(
-                color: Colors.greenAccent.withValues(alpha: 0.75),
-                blurRadius: 16,
+    final isLeft = icon == Icons.arrow_back;
+
+    return SizedBox(
+      width: 64,
+      height: 48,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          if (isActive)
+            CustomPaint(
+              size: const Size(52, 42),
+              painter: _LongArrowPainter(
+                isLeft: isLeft,
+                color: Colors.greenAccent.withValues(alpha: 0.34),
+                strokeWidth: 13,
+                blurRadius: 18,
               ),
-            ]
-          : null,
+            ),
+
+          if (isActive)
+            CustomPaint(
+              size: const Size(52, 42),
+              painter: _LongArrowPainter(
+                isLeft: isLeft,
+                color: Colors.greenAccent.withValues(alpha: 0.60),
+                strokeWidth: 8,
+                blurRadius: 8,
+              ),
+            ),
+
+          CustomPaint(
+            size: const Size(52, 42),
+            painter: _LongArrowPainter(
+              isLeft: isLeft,
+              color: isActive ? Colors.greenAccent : Colors.white24,
+              strokeWidth: isActive ? 4.8 : 3.6,
+              blurRadius: 0,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LongArrowPainter extends CustomPainter {
+  final bool isLeft;
+  final Color color;
+  final double strokeWidth;
+  final double blurRadius;
+
+  const _LongArrowPainter({
+    required this.isLeft,
+    required this.color,
+    required this.strokeWidth,
+    required this.blurRadius,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final centerY = size.height / 2;
+
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..isAntiAlias = true;
+
+    if (blurRadius > 0) {
+      paint.maskFilter = MaskFilter.blur(BlurStyle.normal, blurRadius);
+    }
+
+    final path = Path();
+
+    if (isLeft) {
+      final tip = Offset(size.width * 0.12, centerY);
+      final tailEnd = Offset(size.width * 0.88, centerY);
+      final headTop = Offset(size.width * 0.36, size.height * 0.24);
+      final headBottom = Offset(size.width * 0.36, size.height * 0.76);
+
+      path.moveTo(tailEnd.dx, tailEnd.dy);
+      path.lineTo(tip.dx, tip.dy);
+      path.moveTo(tip.dx, tip.dy);
+      path.lineTo(headTop.dx, headTop.dy);
+      path.moveTo(tip.dx, tip.dy);
+      path.lineTo(headBottom.dx, headBottom.dy);
+    } else {
+      final tip = Offset(size.width * 0.88, centerY);
+      final tailEnd = Offset(size.width * 0.12, centerY);
+      final headTop = Offset(size.width * 0.64, size.height * 0.24);
+      final headBottom = Offset(size.width * 0.64, size.height * 0.76);
+
+      path.moveTo(tailEnd.dx, tailEnd.dy);
+      path.lineTo(tip.dx, tip.dy);
+      path.moveTo(tip.dx, tip.dy);
+      path.lineTo(headTop.dx, headTop.dy);
+      path.moveTo(tip.dx, tip.dy);
+      path.lineTo(headBottom.dx, headBottom.dy);
+    }
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _LongArrowPainter oldDelegate) {
+    return oldDelegate.isLeft != isLeft ||
+        oldDelegate.color != color ||
+        oldDelegate.strokeWidth != strokeWidth ||
+        oldDelegate.blurRadius != blurRadius;
+  }
+}
+
+class _HazardIcon extends StatelessWidget {
+  final bool isActive;
+
+  const _HazardIcon({required this.isActive});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 58,
+      height: 58,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          if (isActive)
+            Icon(
+              Icons.warning_amber_rounded,
+              color: Colors.redAccent.withValues(alpha: 0.30),
+              size: 54,
+              shadows: [
+                Shadow(
+                  color: Colors.redAccent.withValues(alpha: 0.55),
+                  blurRadius: 26,
+                ),
+              ],
+            ),
+
+          if (isActive)
+            Icon(
+              Icons.warning_amber_rounded,
+              color: Colors.redAccent.withValues(alpha: 0.58),
+              size: 42,
+              shadows: [
+                Shadow(
+                  color: Colors.redAccent.withValues(alpha: 0.70),
+                  blurRadius: 16,
+                ),
+              ],
+            ),
+
+          Icon(
+            Icons.warning_amber_rounded,
+            color: isActive ? Colors.redAccent : Colors.white24,
+            size: isActive ? 34 : 30,
+          ),
+        ],
+      ),
     );
   }
 }
