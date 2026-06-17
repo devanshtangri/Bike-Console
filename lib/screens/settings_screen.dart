@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
-import '../ble_service.dart';
 import '../controllers/bike_console_controller.dart';
 import '../models/ride_models.dart';
 import 'scan_for_devices_screen.dart';
@@ -142,14 +141,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
 
     if (selected != null) {
-      await BleService.instance.connectToDevice(selected);
+      await widget.bikeConsoleController.connectionController.pairWithDevice(
+        selected,
+      );
+
       if (mounted) setState(() {});
     }
   }
 
   Future<void> _forgetDevice() async {
-    await BleService.instance.forgetDevice();
+    await widget.bikeConsoleController.connectionController.forgetConsole();
+
     if (mounted) setState(() {});
+  }
+
+  String _consoleStatusText(ConsoleConnectionState state) {
+    switch (state) {
+      case ConsoleConnectionState.disconnected:
+        return "No Console Paired";
+      case ConsoleConnectionState.scanning:
+        return "Offline";
+      case ConsoleConnectionState.available:
+        return "Available";
+      case ConsoleConnectionState.connecting:
+        return "Connecting";
+      case ConsoleConnectionState.connected:
+        return "Connected";
+      case ConsoleConnectionState.lostDuringRide:
+        return "Connection Lost";
+      case ConsoleConnectionState.reconnecting:
+        return "Reconnecting";
+      case ConsoleConnectionState.offline:
+        return "Offline";
+    }
+  }
+
+  String _rssiText(int? rssi) {
+    if (rssi == null) return "-";
+    return "$rssi dBm";
   }
 
   @override
@@ -159,8 +188,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     final rideState = widget.bikeConsoleController.rideSessionController.state;
 
-    final savedDeviceName = BleService.instance.savedDeviceName;
-    final hasSavedDevice = BleService.instance.savedDeviceId != null;
+    final hasSavedDevice = connectionController.hasSavedConsole;
+    final hasConnectedConsole = connectionController.connectedDeviceId != null;
+    final shouldShowConsoleRows = hasSavedDevice || hasConnectedConsole;
+
+    final consoleDeviceName =
+        connectionController.consoleDisplayName ?? "Unknown Console";
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -381,15 +414,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 16),
           _SettingsCard(
-            title: "Bluetooth Device",
+            title: "Console Device Status",
             children: [
-              _InfoRow(
-                label: "Status",
-                value: connectionController.connectionState.name,
-              ),
-              _InfoRow(label: "Saved Device", value: savedDeviceName ?? "None"),
-              const SizedBox(height: 14),
-              if (!hasSavedDevice)
+              if (shouldShowConsoleRows) ...[
+                _InfoRow(
+                  label: "Status",
+                  value: _consoleStatusText(
+                    connectionController.connectionState,
+                  ),
+                ),
+                _InfoRow(label: "Console", value: consoleDeviceName),
+                if (connectionController.isConnected)
+                  _InfoRow(
+                    label: "RSSI",
+                    value: _rssiText(connectionController.latestRssi),
+                  ),
+                const SizedBox(height: 14),
+              ],
+              if (!shouldShowConsoleRows)
                 SizedBox(
                   height: 46,
                   child: OutlinedButton(
@@ -403,10 +445,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         borderRadius: BorderRadius.circular(16),
                       ),
                     ),
-                    child: const Text("Pair a Device"),
+                    child: const Text("Pair a Console"),
                   ),
                 ),
-              if (hasSavedDevice)
+              if (shouldShowConsoleRows)
                 SizedBox(
                   height: 46,
                   child: OutlinedButton(
@@ -420,7 +462,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         borderRadius: BorderRadius.circular(16),
                       ),
                     ),
-                    child: const Text("Forget Device"),
+                    child: const Text("Forget Console"),
                   ),
                 ),
             ],

@@ -560,8 +560,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                         top: mapHeight - speedPanelHeight,
                         child: SpeedConsolePanel(
                           speedKmph: rideState.currentSpeedKmph,
-                          hazardEnabled:
-                              isConsoleConnected && rideState.hazardEnabled,
+                          hazardEnabled: rideState.hazardEnabled,
                           leftArrowActive:
                               isConsoleConnected && rideState.leftArrowActive,
                           rightArrowActive:

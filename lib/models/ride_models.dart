@@ -5,10 +5,12 @@ enum PauseReason { none, manual, auto }
 enum ConsoleConnectionState {
   disconnected,
   scanning,
+  available,
   connecting,
   connected,
-  reconnecting,
   lostDuringRide,
+  reconnecting,
+  offline,
 }
 
 enum SpeedSource { none, wheel, gpsFallback }
@@ -168,8 +170,24 @@ class RideSessionState {
   bool get isPaused => rideState == RideState.paused;
   bool get isRideActive => rideState != RideState.stopped;
 
-  bool get leftArrowActive => leftPhysicalIndicator || hazardEnabled;
-  bool get rightArrowActive => rightPhysicalIndicator || hazardEnabled;
+  bool get physicalIndicatorOverrideActive =>
+      leftPhysicalIndicator || rightPhysicalIndicator;
+
+  bool get leftArrowActive {
+    if (physicalIndicatorOverrideActive) {
+      return leftPhysicalIndicator;
+    }
+
+    return hazardEnabled;
+  }
+
+  bool get rightArrowActive {
+    if (physicalIndicatorOverrideActive) {
+      return rightPhysicalIndicator;
+    }
+
+    return hazardEnabled;
+  }
 
   RideSessionState copyWith({
     RideState? rideState,

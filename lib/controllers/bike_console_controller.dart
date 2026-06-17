@@ -9,7 +9,9 @@ class BikeConsoleController extends ChangeNotifier {
   BikeConsoleController()
     : connectionController = BikeConnectionController(),
       rideSessionController = RideSessionController() {
-    rideSessionController.onCommand = connectionController.sendCommand;
+    rideSessionController.onCommand = (command) {
+      connectionController.sendCommand(command);
+    };
 
     connectionController.onPacket = rideSessionController.handleSensorPacket;
     connectionController.onConnectionStateChanged =
@@ -31,6 +33,7 @@ class BikeConsoleController extends ChangeNotifier {
   Future<void> initialize() async {
     _displaySettings = await _appSettingsService.loadDisplaySettings();
     await rideSessionController.initialize();
+    await connectionController.initialize();
     notifyListeners();
   }
 
