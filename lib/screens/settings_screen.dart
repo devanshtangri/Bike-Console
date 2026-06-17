@@ -5,7 +5,6 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../controllers/bike_console_controller.dart';
 import '../models/ride_models.dart';
 import 'scan_for_devices_screen.dart';
-import 'sessions_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key, required this.bikeConsoleController});
@@ -186,8 +185,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final connectionController =
         widget.bikeConsoleController.connectionController;
 
-    final rideState = widget.bikeConsoleController.rideSessionController.state;
-
     final hasSavedDevice = connectionController.hasSavedConsole;
     final hasConnectedConsole = connectionController.connectedDeviceId != null;
     final shouldShowConsoleRows = hasSavedDevice || hasConnectedConsole;
@@ -339,76 +336,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   style: TextStyle(color: Colors.white38, height: 1.35),
                 ),
                 onChanged: _setLiteModeEnabled,
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _SettingsCard(
-            title: "Ride History",
-            children: [
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF121212),
-                    borderRadius: BorderRadius.circular(15),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.10),
-                      width: 1,
-                    ),
-                  ),
-                  child: const Icon(
-                    Icons.route_rounded,
-                    color: Colors.greenAccent,
-                    size: 22,
-                  ),
-                ),
-                title: const Text(
-                  "Ride Sessions",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                subtitle: const Text(
-                  "View saved rides, route maps, and ride stats.",
-                  style: TextStyle(color: Colors.white38, height: 1.35),
-                ),
-                trailing: const Icon(
-                  Icons.chevron_right_rounded,
-                  color: Colors.white38,
-                ),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const SessionsScreen()),
-                  );
-                },
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _SettingsCard(
-            title: "Current Ride State",
-            children: [
-              _InfoRow(label: "Ride", value: rideState.rideState.name),
-              _InfoRow(
-                label: "Speed",
-                value: "${rideState.currentSpeedKmph.toStringAsFixed(1)} km/h",
-              ),
-              _InfoRow(
-                label: "RPM",
-                value: rideState.currentRpm.toStringAsFixed(0),
-              ),
-              _InfoRow(
-                label: "Distance",
-                value: "${rideState.distanceKm.toStringAsFixed(2)} km",
-              ),
-              _InfoRow(
-                label: "Hazard",
-                value: rideState.hazardEnabled ? "On" : "Off",
               ),
             ],
           ),
