@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import '../models/app_settings.dart';
+import '../services/app_settings_service.dart';
 import 'bike_connection_controller.dart';
 import 'ride_session_controller.dart';
 
@@ -20,8 +22,23 @@ class BikeConsoleController extends ChangeNotifier {
   final BikeConnectionController connectionController;
   final RideSessionController rideSessionController;
 
+  final AppSettingsService _appSettingsService = AppSettingsService();
+
+  AppDisplaySettings _displaySettings = AppDisplaySettings.defaults();
+
+  AppDisplaySettings get displaySettings => _displaySettings;
+
   Future<void> initialize() async {
+    _displaySettings = await _appSettingsService.loadDisplaySettings();
     await rideSessionController.initialize();
+    notifyListeners();
+  }
+
+  Future<void> updateDisplaySettings(AppDisplaySettings nextSettings) async {
+    _displaySettings = nextSettings;
+    notifyListeners();
+
+    await _appSettingsService.saveDisplaySettings(nextSettings);
   }
 
   void injectDebugSensorPacket({

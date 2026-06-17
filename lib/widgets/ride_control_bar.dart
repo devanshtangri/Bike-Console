@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -57,18 +55,19 @@ class _RideControlBarState extends State<RideControlBar>
       duration: const Duration(milliseconds: 360),
     );
 
-    _blockedTapAnimation = TweenSequence<double>([
-      TweenSequenceItem(tween: Tween(begin: 0, end: -9), weight: 1),
-      TweenSequenceItem(tween: Tween(begin: -9, end: 9), weight: 2),
-      TweenSequenceItem(tween: Tween(begin: 9, end: -6), weight: 2),
-      TweenSequenceItem(tween: Tween(begin: -6, end: 6), weight: 2),
-      TweenSequenceItem(tween: Tween(begin: 6, end: 0), weight: 1),
-    ]).animate(
-      CurvedAnimation(
-        parent: _blockedTapController,
-        curve: Curves.easeOutCubic,
-      ),
-    );
+    _blockedTapAnimation =
+        TweenSequence<double>([
+          TweenSequenceItem(tween: Tween(begin: 0, end: -9), weight: 1),
+          TweenSequenceItem(tween: Tween(begin: -9, end: 9), weight: 2),
+          TweenSequenceItem(tween: Tween(begin: 9, end: -6), weight: 2),
+          TweenSequenceItem(tween: Tween(begin: -6, end: 6), weight: 2),
+          TweenSequenceItem(tween: Tween(begin: 6, end: 0), weight: 1),
+        ]).animate(
+          CurvedAnimation(
+            parent: _blockedTapController,
+            curve: Curves.easeOutCubic,
+          ),
+        );
   }
 
   @override
@@ -91,10 +90,7 @@ class _RideControlBarState extends State<RideControlBar>
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(24),
           ),
-          title: const Text(
-            "End Ride?",
-            style: TextStyle(color: Colors.white),
-          ),
+          title: const Text("End Ride?", style: TextStyle(color: Colors.white)),
           content: const Text(
             "Are you sure you want to stop and finish this ride?",
             style: TextStyle(color: Colors.white70),
@@ -130,35 +126,22 @@ class _RideControlBarState extends State<RideControlBar>
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 620),
-          curve: Curves.easeOutCubic,
-          height: 78,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: const Color(0xFF181818).withValues(alpha: 0.72),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.12),
-              width: 1,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.35),
-                blurRadius: 20,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          child: Align(
-            alignment: Alignment.center,
-            child: _rideControlContent(context),
-          ),
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 620),
+      curve: Curves.easeOutCubic,
+      height: 78,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF121212),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.10),
+          width: 1,
         ),
+      ),
+      child: Align(
+        alignment: Alignment.center,
+        child: _rideControlContent(context),
       ),
     );
   }
@@ -211,10 +194,7 @@ class _RideControlBarState extends State<RideControlBar>
             ),
 
             Expanded(
-              child: SizedBox(
-                height: 54,
-                child: _rideActionButton(context),
-              ),
+              child: SizedBox(height: 54, child: _rideActionButton(context)),
             ),
           ],
         );
@@ -236,8 +216,8 @@ class _RideControlBarState extends State<RideControlBar>
           color: isBlockedStart
               ? Colors.redAccent
               : isPaused || isStart
-                  ? AppColors.premiumGreen
-                  : const Color(0xFFFFC928),
+              ? AppColors.premiumGreen
+              : const Color(0xFFFFC928),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Stack(
@@ -369,28 +349,24 @@ class _RideControlBarState extends State<RideControlBar>
     final icon = isBlockedStart
         ? Icons.memory_rounded
         : isStart || isPaused
-            ? Icons.play_arrow_rounded
-            : Icons.pause_rounded;
+        ? Icons.play_arrow_rounded
+        : Icons.pause_rounded;
 
     final label = isBlockedStart
         ? "Connect a Console"
         : _isCountdown
-            ? "Starting"
-            : isStart
-                ? "Start"
-                : isPaused
-                    ? "Resume"
-                    : "Pause";
+        ? "Starting"
+        : isStart
+        ? "Start"
+        : isPaused
+        ? "Resume"
+        : "Pause";
 
     return Row(
       key: ValueKey(label),
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(
-          icon,
-          color: Colors.black,
-          size: isStart ? 28 : 24,
-        ),
+        Icon(icon, color: Colors.black, size: isStart ? 28 : 24),
         SizedBox(width: isStart ? 8 : 6),
         Text(
           label,
@@ -399,8 +375,8 @@ class _RideControlBarState extends State<RideControlBar>
             fontSize: isBlockedStart
                 ? 18
                 : isStart
-                    ? 21
-                    : 20,
+                ? 21
+                : 20,
             fontWeight: isStart ? FontWeight.w700 : FontWeight.w600,
           ),
         ),

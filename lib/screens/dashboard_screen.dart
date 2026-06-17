@@ -14,6 +14,7 @@ import '../widgets/hex_settings_button.dart';
 import '../widgets/ride_control_bar.dart';
 import '../widgets/speed_console_panel.dart';
 import 'settings_screen.dart';
+import 'sessions_screen.dart';
 import '../theme/app_colors.dart';
 import 'package:flutter/services.dart';
 
@@ -304,31 +305,66 @@ class _DashboardScreenState extends State<DashboardScreen>
           opacity: isConnected ? 1 : 0,
           duration: const Duration(milliseconds: 260),
           curve: Curves.easeOutCubic,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(18),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-              child: Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF181818).withValues(alpha: 0.72),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.12),
-                    width: 1,
-                  ),
-                ),
-                child: Icon(
-                  Icons.memory_rounded,
-                  color: AppColors.premiumGreen,
-                  size: 25,
-                ),
+          child: Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: const Color(0xFF121212),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.10),
+                width: 1,
               ),
+            ),
+            child: Icon(
+              Icons.memory_rounded,
+              color: AppColors.premiumGreen,
+              size: 25,
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildRecenterButtonContent() {
+    final liteMode =
+        widget.bikeConsoleController.displaySettings.liteModeEnabled;
+    final recenterEnabled = _mapTrackingController.followModeEnabled;
+
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: liteMode
+            ? const Color(0xFF181818)
+            : const Color(0xFF181818).withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: liteMode ? 0.09 : 0.12),
+          width: 1,
+        ),
+      ),
+      child: liteMode
+          ? Icon(
+              Icons.my_location_rounded,
+              color: recenterEnabled ? AppColors.premiumGreen : Colors.white70,
+              size: 25,
+            )
+          : AnimatedBuilder(
+              animation: _recenterPulseAnimation,
+              builder: (context, child) {
+                return Icon(
+                  Icons.my_location_rounded,
+                  color: recenterEnabled
+                      ? AppColors.premiumGreen.withValues(
+                          alpha: _recenterPulseAnimation.value,
+                        )
+                      : Colors.white70,
+                  size: 25,
+                );
+              },
+            ),
     );
   }
 
@@ -345,6 +381,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     final isConsoleConnected =
         widget.bikeConsoleController.connectionController.isConnected;
     final screenWidth = MediaQuery.of(context).size.width;
+    final liteMode =
+        widget.bikeConsoleController.displaySettings.liteModeEnabled;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -368,17 +406,34 @@ class _DashboardScreenState extends State<DashboardScreen>
                     ),
                   ),
 
-                  HexSettingsButton(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => SettingsScreen(
-                            bikeConsoleController: widget.bikeConsoleController,
-                          ),
-                        ),
-                      );
-                    },
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _HeaderSessionsButton(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const SessionsScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(width: 16),
+                      HexSettingsButton(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => SettingsScreen(
+                                bikeConsoleController:
+                                    widget.bikeConsoleController,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -455,42 +510,15 @@ class _DashboardScreenState extends State<DashboardScreen>
                           onTap: _mapTrackingController.recenter,
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(18),
-                            child: BackdropFilter(
-                              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                              child: Container(
-                                width: 48,
-                                height: 48,
-                                decoration: BoxDecoration(
-                                  color: const Color(
-                                    0xFF181818,
-                                  ).withValues(alpha: 0.72),
-                                  borderRadius: BorderRadius.circular(18),
-                                  border: Border.all(
-                                    color: Colors.white.withValues(alpha: 0.12),
-                                    width: 1,
+                            child: liteMode
+                                ? _buildRecenterButtonContent()
+                                : BackdropFilter(
+                                    filter: ImageFilter.blur(
+                                      sigmaX: 18,
+                                      sigmaY: 18,
+                                    ),
+                                    child: _buildRecenterButtonContent(),
                                   ),
-                                ),
-                                child: AnimatedBuilder(
-                                  animation: _recenterPulseAnimation,
-                                  builder: (context, child) {
-                                    final recenterEnabled =
-                                        _mapTrackingController
-                                            .followModeEnabled;
-
-                                    return Icon(
-                                      Icons.my_location_rounded,
-                                      color: recenterEnabled
-                                          ? AppColors.premiumGreen.withValues(
-                                              alpha:
-                                                  _recenterPulseAnimation.value,
-                                            )
-                                          : Colors.white70,
-                                      size: 25,
-                                    );
-                                  },
-                                ),
-                              ),
-                            ),
                           ),
                         ),
                       ),
@@ -539,6 +567,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                           onRightArrowLongPress: () {
                             _toggleDebugPhysicalIndicator(leftSide: false);
                           },
+                          liteMode: liteMode,
                         ),
                       ),
 
@@ -558,6 +587,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                                       rideState.distanceKm,
                                     ),
                                     icon: Icons.route_outlined,
+                                    liteMode: liteMode,
                                   ),
                                 ),
 
@@ -570,6 +600,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                                       0,
                                     ),
                                     icon: Icons.rotate_right_outlined,
+                                    liteMode: liteMode,
                                     onLongPress: _toggleDebugMovingPacket,
                                   ),
                                 ),
@@ -587,6 +618,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                                       rideState.averageSpeedKmph,
                                     ),
                                     icon: Icons.speed_outlined,
+                                    liteMode: liteMode,
                                   ),
                                 ),
 
@@ -599,6 +631,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                                       rideState.maxSpeedKmph,
                                     ),
                                     icon: Icons.trending_up_outlined,
+                                    liteMode: liteMode,
                                   ),
                                 ),
                               ],
@@ -701,6 +734,37 @@ class _DashboardScreenState extends State<DashboardScreen>
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HeaderSessionsButton extends StatelessWidget {
+  const _HeaderSessionsButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        width: 42,
+        height: 42,
+        decoration: BoxDecoration(
+          color: const Color(0xFF121212),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.16),
+            width: 1.4,
+          ),
+        ),
+        child: Icon(
+          Icons.route_rounded,
+          color: Colors.white.withValues(alpha: 0.86),
+          size: 25,
         ),
       ),
     );

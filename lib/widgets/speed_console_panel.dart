@@ -11,6 +11,7 @@ class SpeedConsolePanel extends StatefulWidget {
   final VoidCallback onHazardTap;
   final VoidCallback onLeftArrowLongPress;
   final VoidCallback onRightArrowLongPress;
+  final bool liteMode;
 
   const SpeedConsolePanel({
     super.key,
@@ -22,6 +23,7 @@ class SpeedConsolePanel extends StatefulWidget {
     required this.onHazardTap,
     required this.onLeftArrowLongPress,
     required this.onRightArrowLongPress,
+    this.liteMode = false,
   });
 
   @override
@@ -33,6 +35,8 @@ class _SpeedConsolePanelState extends State<SpeedConsolePanel>
   late final AnimationController _blinkController;
 
   bool get _hasActiveArrow => widget.leftArrowActive || widget.rightArrowActive;
+
+  bool get _shouldAnimateArrows => _hasActiveArrow && !widget.liteMode;
 
   @override
   void initState() {
@@ -51,13 +55,14 @@ class _SpeedConsolePanelState extends State<SpeedConsolePanel>
     super.didUpdateWidget(oldWidget);
 
     if (oldWidget.leftArrowActive != widget.leftArrowActive ||
-        oldWidget.rightArrowActive != widget.rightArrowActive) {
+        oldWidget.rightArrowActive != widget.rightArrowActive ||
+        oldWidget.liteMode != widget.liteMode) {
       _syncBlinkController();
     }
   }
 
   void _syncBlinkController() {
-    if (_hasActiveArrow) {
+    if (_shouldAnimateArrows) {
       if (!_blinkController.isAnimating) {
         _blinkController.repeat();
       }
@@ -73,6 +78,92 @@ class _SpeedConsolePanelState extends State<SpeedConsolePanel>
     super.dispose();
   }
 
+  Widget _buildPanelContent(bool blinkOn) {
+    return CustomPaint(
+      foregroundPainter: DashboardPanelBorderPainter(),
+      child: Container(
+        height: 145,
+        decoration: BoxDecoration(
+          color: widget.liteMode
+              ? const Color(0xFF121212)
+              : const Color(0xFF151515).withValues(alpha: 0.12),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 30),
+          child: Row(
+            children: [
+              Expanded(
+                child: Center(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onLongPress: widget.onLeftArrowLongPress,
+                    child: _IndicatorIcon(
+                      icon: Icons.arrow_back,
+                      isActive: widget.leftArrowActive,
+                      isVisible: widget.leftArrowActive && blinkOn,
+                      liteMode: widget.liteMode,
+                    ),
+                  ),
+                ),
+              ),
+              Container(
+                width: 1,
+                height: 56,
+                color: Colors.white.withValues(alpha: 0.12),
+              ),
+              Expanded(
+                flex: 2,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: widget.controlsEnabled ? widget.onHazardTap : null,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        widget.speedKmph.toStringAsFixed(0),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 54,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Transform.translate(
+                        offset: const Offset(0, -14),
+                        child: const Text(
+                          "km/h",
+                          style: TextStyle(color: Colors.white70, fontSize: 14),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Container(
+                width: 1,
+                height: 56,
+                color: Colors.white.withValues(alpha: 0.08),
+              ),
+              Expanded(
+                child: Center(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onLongPress: widget.onRightArrowLongPress,
+                    child: _IndicatorIcon(
+                      icon: Icons.arrow_forward,
+                      isActive: widget.rightArrowActive,
+                      isVisible: widget.rightArrowActive && blinkOn,
+                      liteMode: widget.liteMode,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final hazardTapHandler = widget.controlsEnabled ? widget.onHazardTap : null;
@@ -80,7 +171,10 @@ class _SpeedConsolePanelState extends State<SpeedConsolePanel>
     return AnimatedBuilder(
       animation: _blinkController,
       builder: (context, child) {
-        final blinkOn = !_hasActiveArrow || _blinkController.value < 0.55;
+        final blinkOn =
+            widget.liteMode ||
+            !_hasActiveArrow ||
+            _blinkController.value < 0.55;
 
         return SizedBox(
           height: 150,
@@ -100,114 +194,29 @@ class _SpeedConsolePanelState extends State<SpeedConsolePanel>
                   ),
                 ),
               ),
-
               Positioned(
                 top: 0,
                 left: 0,
                 right: 0,
                 child: ClipPath(
                   clipper: DashboardPanelClipper(),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                    child: CustomPaint(
-                      foregroundPainter: DashboardPanelBorderPainter(),
-                      child: Container(
-                        height: 145,
-                        decoration: BoxDecoration(
-                          color: const Color(
-                            0xFF151515,
-                          ).withValues(alpha: 0.12),
+                  child: widget.liteMode
+                      ? _buildPanelContent(blinkOn)
+                      : BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                          child: _buildPanelContent(blinkOn),
                         ),
-                        child: Padding(
-                          padding: const EdgeInsets.only(bottom: 30),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Center(
-                                  child: GestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    onLongPress: widget.onLeftArrowLongPress,
-                                    child: _IndicatorIcon(
-                                      icon: Icons.arrow_back,
-                                      isActive:
-                                          widget.leftArrowActive && blinkOn,
-                                    ),
-                                  ),
-                                ),
-                              ),
-
-                              Container(
-                                width: 1,
-                                height: 56,
-                                color: Colors.white.withValues(alpha: 0.12),
-                              ),
-
-                              Expanded(
-                                flex: 2,
-                                child: GestureDetector(
-                                  behavior: HitTestBehavior.opaque,
-                                  onTap: hazardTapHandler,
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Text(
-                                        widget.speedKmph.toStringAsFixed(0),
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 54,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-
-                                      Transform.translate(
-                                        offset: const Offset(0, -14),
-                                        child: const Text(
-                                          "km/h",
-                                          style: TextStyle(
-                                            color: Colors.white70,
-                                            fontSize: 14,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-
-                              Container(
-                                width: 1,
-                                height: 56,
-                                color: Colors.white.withValues(alpha: 0.08),
-                              ),
-
-                              Expanded(
-                                child: Center(
-                                  child: GestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    onLongPress: widget.onRightArrowLongPress,
-                                    child: _IndicatorIcon(
-                                      icon: Icons.arrow_forward,
-                                      isActive:
-                                          widget.rightArrowActive && blinkOn,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
                 ),
               ),
-
               Positioned(
                 bottom: 2,
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: hazardTapHandler,
-                  child: _HazardIcon(isActive: widget.hazardEnabled),
+                  child: _HazardIcon(
+                    isActive: widget.hazardEnabled,
+                    liteMode: widget.liteMode,
+                  ),
                 ),
               ),
             ],
@@ -221,8 +230,15 @@ class _SpeedConsolePanelState extends State<SpeedConsolePanel>
 class _IndicatorIcon extends StatelessWidget {
   final IconData icon;
   final bool isActive;
+  final bool isVisible;
+  final bool liteMode;
 
-  const _IndicatorIcon({required this.icon, required this.isActive});
+  const _IndicatorIcon({
+    required this.icon,
+    required this.isActive,
+    required this.isVisible,
+    required this.liteMode,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -234,7 +250,7 @@ class _IndicatorIcon extends StatelessWidget {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          if (isActive)
+          if (isVisible && !liteMode)
             CustomPaint(
               size: const Size(40, 34),
               painter: _LongArrowPainter(
@@ -244,8 +260,7 @@ class _IndicatorIcon extends StatelessWidget {
                 blurRadius: 16,
               ),
             ),
-
-          if (isActive)
+          if (isVisible && !liteMode)
             CustomPaint(
               size: const Size(40, 34),
               painter: _LongArrowPainter(
@@ -255,12 +270,11 @@ class _IndicatorIcon extends StatelessWidget {
                 blurRadius: 7,
               ),
             ),
-
           CustomPaint(
             size: const Size(40, 34),
             painter: _LongArrowPainter(
               isLeft: isLeft,
-              color: isActive ? Colors.greenAccent : Colors.white24,
+              color: isVisible ? Colors.greenAccent : Colors.white24,
               strokeWidth: isActive ? 4.5 : 3.4,
               blurRadius: 0,
             ),
@@ -346,8 +360,9 @@ class _LongArrowPainter extends CustomPainter {
 
 class _HazardIcon extends StatelessWidget {
   final bool isActive;
+  final bool liteMode;
 
-  const _HazardIcon({required this.isActive});
+  const _HazardIcon({required this.isActive, required this.liteMode});
 
   @override
   Widget build(BuildContext context) {
@@ -357,7 +372,7 @@ class _HazardIcon extends StatelessWidget {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          if (isActive)
+          if (isActive && !liteMode)
             Icon(
               Icons.warning_amber_rounded,
               color: Colors.redAccent.withValues(alpha: 0.30),
@@ -369,8 +384,7 @@ class _HazardIcon extends StatelessWidget {
                 ),
               ],
             ),
-
-          if (isActive)
+          if (isActive && !liteMode)
             Icon(
               Icons.warning_amber_rounded,
               color: Colors.redAccent.withValues(alpha: 0.58),
@@ -382,7 +396,6 @@ class _HazardIcon extends StatelessWidget {
                 ),
               ],
             ),
-
           Icon(
             Icons.warning_amber_rounded,
             color: isActive ? Colors.redAccent : Colors.white24,

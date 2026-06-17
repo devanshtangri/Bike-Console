@@ -1,20 +1,37 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
-import 'dart:math';
-import '../theme/app_colors.dart';
 
 class HexSettingsButton extends StatelessWidget {
   final VoidCallback onTap;
 
-  const HexSettingsButton({super.key, required this.onTap});
+  const HexSettingsButton({
+    super.key,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: onTap,
-      child: SizedBox(
-        width: 34,
-        height: 34,
-        child: CustomPaint(painter: _HexSettingsPainter()),
+      child: Container(
+        width: 42,
+        height: 42,
+        decoration: BoxDecoration(
+          color: const Color(0xFF121212),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.16),
+            width: 1.4,
+          ),
+        ),
+        child: Center(
+          child: CustomPaint(
+            size: const Size(23, 23),
+            painter: _HexSettingsPainter(),
+          ),
+        ),
       ),
     );
   }
@@ -24,26 +41,28 @@ class _HexSettingsPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width * 0.40;
+    final radius = size.width * 0.44;
 
     final hexPaint = Paint()
-      ..color = Colors.white
+      ..color = Colors.white.withValues(alpha: 0.86)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.1
       ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
+      ..strokeJoin = StrokeJoin.round
+      ..isAntiAlias = true;
 
     final dotPaint = Paint()
-      ..color = AppColors.premiumGreen
-      ..style = PaintingStyle.fill;
+      ..color = Colors.white.withValues(alpha: 0.86)
+      ..style = PaintingStyle.fill
+      ..isAntiAlias = true;
 
     final path = Path();
 
     for (int i = 0; i < 6; i++) {
-      final angle = (pi / 3 * i) - (pi / 6);
+      final angle = -math.pi / 2 + (math.pi / 3 * i);
       final point = Offset(
-        center.dx + radius * cos(angle),
-        center.dy + radius * sin(angle),
+        center.dx + radius * math.cos(angle),
+        center.dy + radius * math.sin(angle),
       );
 
       if (i == 0) {
@@ -56,7 +75,7 @@ class _HexSettingsPainter extends CustomPainter {
     path.close();
 
     canvas.drawPath(path, hexPaint);
-    canvas.drawCircle(center, 3.2, dotPaint);
+    canvas.drawCircle(center, 2.8, dotPaint);
   }
 
   @override

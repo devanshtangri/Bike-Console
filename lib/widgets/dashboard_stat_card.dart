@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 class DashboardStatCard extends StatelessWidget {
@@ -7,6 +5,7 @@ class DashboardStatCard extends StatelessWidget {
   final String value;
   final IconData icon;
   final VoidCallback? onLongPress;
+  final bool liteMode;
 
   const DashboardStatCard({
     super.key,
@@ -14,6 +13,7 @@ class DashboardStatCard extends StatelessWidget {
     required this.value,
     required this.icon,
     this.onLongPress,
+    this.liteMode = false,
   });
 
   @override
@@ -21,66 +21,53 @@ class DashboardStatCard extends StatelessWidget {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onLongPress: onLongPress,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-          child: Container(
-            height: 96,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: const Color(0xFF181818).withValues(alpha: 0.72),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.12),
-                width: 1,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.35),
-                  blurRadius: 20,
-                  offset: const Offset(0, 10),
+      child: Container(
+        height: 96,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF121212),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.10),
+            width: 1,
+          ),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  value,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
-              ],
-            ),
-            child: Center(
-              child: Column(
+              ),
+              const SizedBox(height: 6),
+              Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      value,
-                      textAlign: TextAlign.center,
-                      maxLines: 1,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 28,
-                        fontWeight: FontWeight.w500,
-                      ),
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: 0.6,
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        title,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white54,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          letterSpacing: 0.6,
-                        ),
-                      ),
-                      const SizedBox(width: 5),
-                      Icon(icon, color: Colors.white54, size: 13),
-                    ],
-                  ),
+                  const SizedBox(width: 5),
+                  Icon(icon, color: Colors.white54, size: 13),
                 ],
               ),
-            ),
+            ],
           ),
         ),
       ),
