@@ -186,6 +186,44 @@ class RideSessionController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void toggleAppLeftIndicator() {
+    final nextLeftState = !_state.appLeftIndicator;
+
+    _state = _state.copyWith(
+      appLeftIndicator: nextLeftState,
+      appRightIndicator: nextLeftState ? false : _state.appRightIndicator,
+    );
+
+    onCommand?.call(
+      BikeCommand.indicator(
+        appLeftIndicator: _state.appLeftIndicator,
+        appRightIndicator: _state.appRightIndicator,
+      ),
+    );
+
+    _persistSnapshotFireAndForget(force: true);
+    notifyListeners();
+  }
+
+  void toggleAppRightIndicator() {
+    final nextRightState = !_state.appRightIndicator;
+
+    _state = _state.copyWith(
+      appRightIndicator: nextRightState,
+      appLeftIndicator: nextRightState ? false : _state.appLeftIndicator,
+    );
+
+    onCommand?.call(
+      BikeCommand.indicator(
+        appLeftIndicator: _state.appLeftIndicator,
+        appRightIndicator: _state.appRightIndicator,
+      ),
+    );
+
+    _persistSnapshotFireAndForget(force: true);
+    notifyListeners();
+  }
+
   void beginCountdown() {
     if (!canStartRide) return;
 
@@ -328,13 +366,19 @@ class RideSessionController extends ChangeNotifier {
       );
     }
 
-    _state = RideSessionState.initial();
+    _state = RideSessionState.initial().copyWith(
+      hazardEnabled: completedState.hazardEnabled,
+      appLeftIndicator: completedState.appLeftIndicator,
+      appRightIndicator: completedState.appRightIndicator,
+    );
+
     _notMovingSinceEpochMs = null;
     _lastSnapshotSaveEpochMs = null;
     _lastAverageSpeedUpdateEpochMs = null;
     _lastConsoleSyncEpochMs = null;
 
     onCommand?.call(BikeCommand.stop());
+    _syncConsoleStateWithApp(force: true);
     _persistSnapshotFireAndForget(force: true);
 
     _stopDurationTicker();
@@ -442,6 +486,8 @@ class RideSessionController extends ChangeNotifier {
         paused: paused,
         distanceKm: rideActive ? _state.distanceKm : 0,
         hazardEnabled: _state.hazardEnabled,
+        appLeftIndicator: _state.appLeftIndicator,
+        appRightIndicator: _state.appRightIndicator,
         tyreCircumferenceMeters: _settings.tyreCircumferenceMeters,
       ),
     );

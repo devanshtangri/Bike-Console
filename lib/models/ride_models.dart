@@ -97,6 +97,8 @@ class RideSessionState {
     required this.currentRpm,
     required this.speedSource,
     required this.hazardEnabled,
+    required this.appLeftIndicator,
+    required this.appRightIndicator,
     required this.leftPhysicalIndicator,
     required this.rightPhysicalIndicator,
   });
@@ -141,6 +143,11 @@ class RideSessionState {
   /// This should stay true even if physical indicators temporarily override output.
   final bool hazardEnabled;
 
+  /// Logical app-side turn indicator states.
+  /// Physical switches still have higher priority than these.
+  final bool appLeftIndicator;
+  final bool appRightIndicator;
+
   /// Physical indicator switch states received from ESP32.
   final bool leftPhysicalIndicator;
   final bool rightPhysicalIndicator;
@@ -159,6 +166,8 @@ class RideSessionState {
       currentRpm: 0,
       speedSource: SpeedSource.none,
       hazardEnabled: false,
+      appLeftIndicator: false,
+      appRightIndicator: false,
       leftPhysicalIndicator: false,
       rightPhysicalIndicator: false,
     );
@@ -173,9 +182,15 @@ class RideSessionState {
   bool get physicalIndicatorOverrideActive =>
       leftPhysicalIndicator || rightPhysicalIndicator;
 
+  bool get appIndicatorOverrideActive => appLeftIndicator || appRightIndicator;
+
   bool get leftArrowActive {
     if (physicalIndicatorOverrideActive) {
       return leftPhysicalIndicator;
+    }
+
+    if (appIndicatorOverrideActive) {
+      return appLeftIndicator;
     }
 
     return hazardEnabled;
@@ -184,6 +199,10 @@ class RideSessionState {
   bool get rightArrowActive {
     if (physicalIndicatorOverrideActive) {
       return rightPhysicalIndicator;
+    }
+
+    if (appIndicatorOverrideActive) {
+      return appRightIndicator;
     }
 
     return hazardEnabled;
@@ -204,6 +223,8 @@ class RideSessionState {
     double? currentRpm,
     SpeedSource? speedSource,
     bool? hazardEnabled,
+    bool? appLeftIndicator,
+    bool? appRightIndicator,
     bool? leftPhysicalIndicator,
     bool? rightPhysicalIndicator,
   }) {
@@ -224,6 +245,8 @@ class RideSessionState {
       currentRpm: currentRpm ?? this.currentRpm,
       speedSource: speedSource ?? this.speedSource,
       hazardEnabled: hazardEnabled ?? this.hazardEnabled,
+      appLeftIndicator: appLeftIndicator ?? this.appLeftIndicator,
+      appRightIndicator: appRightIndicator ?? this.appRightIndicator,
       leftPhysicalIndicator:
           leftPhysicalIndicator ?? this.leftPhysicalIndicator,
       rightPhysicalIndicator:
@@ -318,6 +341,7 @@ enum BikeCommandType {
   hazard,
   setCircumference,
   setDistance,
+  indicator,
 }
 
 class BikeCommand {
@@ -327,6 +351,8 @@ class BikeCommand {
     this.paused,
     this.distanceKm,
     this.hazardEnabled,
+    this.appLeftIndicator,
+    this.appRightIndicator,
     this.tyreCircumferenceMeters,
   });
 
@@ -347,6 +373,10 @@ class BikeCommand {
   /// Logical hazard state from Flutter.
   final bool? hazardEnabled;
 
+  /// Logical app-side indicator states from Flutter.
+  final bool? appLeftIndicator;
+  final bool? appRightIndicator;
+
   /// Tyre circumference in meters.
   /// ESP32 needs this for distance accumulation.
   final double? tyreCircumferenceMeters;
@@ -358,6 +388,8 @@ class BikeCommand {
       if (paused != null) 'paused': paused,
       if (distanceKm != null) 'distance': distanceKm,
       if (hazardEnabled != null) 'hazard': hazardEnabled,
+      if (appLeftIndicator != null) 'appLeft': appLeftIndicator,
+      if (appRightIndicator != null) 'appRight': appRightIndicator,
       if (tyreCircumferenceMeters != null)
         'circumference': tyreCircumferenceMeters,
     };
@@ -368,6 +400,8 @@ class BikeCommand {
     required bool paused,
     required double distanceKm,
     required bool hazardEnabled,
+    required bool appLeftIndicator,
+    required bool appRightIndicator,
     required double tyreCircumferenceMeters,
   }) {
     return BikeCommand(
@@ -376,6 +410,8 @@ class BikeCommand {
       paused: paused,
       distanceKm: distanceKm,
       hazardEnabled: hazardEnabled,
+      appLeftIndicator: appLeftIndicator,
+      appRightIndicator: appRightIndicator,
       tyreCircumferenceMeters: tyreCircumferenceMeters,
     );
   }
@@ -414,6 +450,17 @@ class BikeCommand {
     return BikeCommand(type: BikeCommandType.hazard, hazardEnabled: value);
   }
 
+  factory BikeCommand.indicator({
+    required bool appLeftIndicator,
+    required bool appRightIndicator,
+  }) {
+    return BikeCommand(
+      type: BikeCommandType.indicator,
+      appLeftIndicator: appLeftIndicator,
+      appRightIndicator: appRightIndicator,
+    );
+  }
+
   factory BikeCommand.setCircumference(double value) {
     return BikeCommand(
       type: BikeCommandType.setCircumference,
@@ -437,6 +484,8 @@ class PersistedRideSnapshot {
     required this.averageSpeedKmph,
     required this.maxSpeedKmph,
     required this.hazardEnabled,
+    required this.appLeftIndicator,
+    required this.appRightIndicator,
   });
 
   final RideState rideState;
@@ -448,6 +497,8 @@ class PersistedRideSnapshot {
   final double averageSpeedKmph;
   final double maxSpeedKmph;
   final bool hazardEnabled;
+  final bool appLeftIndicator;
+  final bool appRightIndicator;
 
   factory PersistedRideSnapshot.fromSessionState(RideSessionState state) {
     return PersistedRideSnapshot(
@@ -460,6 +511,8 @@ class PersistedRideSnapshot {
       averageSpeedKmph: state.averageSpeedKmph,
       maxSpeedKmph: state.maxSpeedKmph,
       hazardEnabled: state.hazardEnabled,
+      appLeftIndicator: state.appLeftIndicator,
+      appRightIndicator: state.appRightIndicator,
     );
   }
 
@@ -476,6 +529,8 @@ class PersistedRideSnapshot {
       averageSpeedKmph: BikeSensorPacket._readDouble(json['averageSpeedKmph']),
       maxSpeedKmph: BikeSensorPacket._readDouble(json['maxSpeedKmph']),
       hazardEnabled: json['hazardEnabled'] == true,
+      appLeftIndicator: json['appLeftIndicator'] == true,
+      appRightIndicator: json['appRightIndicator'] == true,
     );
   }
 
@@ -490,6 +545,8 @@ class PersistedRideSnapshot {
       'averageSpeedKmph': averageSpeedKmph,
       'maxSpeedKmph': maxSpeedKmph,
       'hazardEnabled': hazardEnabled,
+      'appLeftIndicator': appLeftIndicator,
+      'appRightIndicator': appRightIndicator,
     };
   }
 
@@ -504,6 +561,8 @@ class PersistedRideSnapshot {
       averageSpeedKmph: averageSpeedKmph,
       maxSpeedKmph: maxSpeedKmph,
       hazardEnabled: hazardEnabled,
+      appLeftIndicator: appLeftIndicator,
+      appRightIndicator: appRightIndicator,
     );
   }
 
