@@ -2,15 +2,21 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../models/ride_models.dart';
 import '../services/ride_persistence_service.dart';
+import '../models/saved_ride_session.dart';
+import '../services/ride_history_service.dart';
 
 class RideSessionController extends ChangeNotifier {
   RideSessionController({
     this.onCommand,
     RidePersistenceService? persistenceService,
-  }) : _persistenceService = persistenceService ?? RidePersistenceService();
+    RideHistoryService? rideHistoryService,
+  }) : _persistenceService = persistenceService ?? RidePersistenceService(),
+       _rideHistoryService = rideHistoryService ?? RideHistoryService();
 
   void Function(BikeCommand command)? onCommand;
+
   final RidePersistenceService _persistenceService;
+  final RideHistoryService _rideHistoryService;
 
   RideSessionState _state = RideSessionState.initial();
   RideSettings _settings = RideSettings.defaults();
@@ -248,6 +254,32 @@ class RideSessionController extends ChangeNotifier {
   }
 
   void stopRide() {
+    final completedState = _state;
+    final endEpochMs = DateTime.now().millisecondsSinceEpoch;
+    final activeDurationMs = calculateActiveDurationMs(nowEpochMs: endEpochMs);
+
+    final shouldSaveSession =
+        completedState.rideStartEpochMs != null &&
+        (completedState.distanceKm > 0 || activeDurationMs > 0);
+
+    if (shouldSaveSession) {
+      final calculatedAverageSpeed = activeDurationMs > 0
+          ? completedState.distanceKm / (activeDurationMs / 3600000.0)
+          : completedState.averageSpeedKmph;
+
+      _rideHistoryService.saveSession(
+        SavedRideSession(
+          id: endEpochMs.toString(),
+          startEpochMs: completedState.rideStartEpochMs!,
+          endEpochMs: endEpochMs,
+          activeDurationMs: activeDurationMs,
+          distanceKm: completedState.distanceKm,
+          averageSpeedKmph: calculatedAverageSpeed,
+          maxSpeedKmph: completedState.maxSpeedKmph,
+        ),
+      );
+    }
+
     _state = RideSessionState.initial();
     _notMovingSinceEpochMs = null;
     _lastSnapshotSaveEpochMs = null;

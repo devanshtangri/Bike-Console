@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../models/saved_ride_session.dart';
+import '../services/ride_history_service.dart';
+
 class SessionsScreen extends StatefulWidget {
   const SessionsScreen({super.key});
 
@@ -8,15 +11,42 @@ class SessionsScreen extends StatefulWidget {
 }
 
 class _SessionsScreenState extends State<SessionsScreen> {
-  bool _selectionModeEnabled = false;
-  final Set<String> _selectedSessionIds = {};
+  final RideHistoryService _rideHistoryService = RideHistoryService();
 
-  // Temporary empty list. Later this will come from RideHistoryService.
-  final List<_SessionPreview> _sessions = const [];
+  bool _loading = true;
+  bool _selectionModeEnabled = false;
+
+  final Set<String> _selectedSessionIds = {};
+  List<SavedRideSession> _sessions = [];
 
   bool get _hasSessions => _sessions.isNotEmpty;
 
   bool get _hasSelection => _selectedSessionIds.isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSessions();
+  }
+
+  Future<void> _loadSessions() async {
+    final sessions = await _rideHistoryService.loadSessions();
+
+    if (!mounted) return;
+
+    setState(() {
+      _sessions = sessions;
+      _loading = false;
+      _selectedSessionIds.removeWhere(
+        (id) => !_sessions.any((session) => session.id == id),
+      );
+
+      if (_sessions.isEmpty) {
+        _selectionModeEnabled = false;
+        _selectedSessionIds.clear();
+      }
+    });
+  }
 
   void _toggleSelectionMode() {
     if (!_hasSessions) return;
@@ -41,24 +71,75 @@ class _SessionsScreenState extends State<SessionsScreen> {
     });
   }
 
-  void _deleteSelected() {
+  Future<void> _deleteSelected() async {
     if (!_hasSelection) return;
 
-    // This will be wired once real saved sessions exist.
+    final deletedCount = _selectedSessionIds.length;
+    final idsToDelete = Set<String>.from(_selectedSessionIds);
+
+    await _rideHistoryService.deleteSessionsByIds(idsToDelete);
+
+    if (!mounted) return;
+
+    setState(() {
+      _sessions = _sessions
+          .where((session) => !idsToDelete.contains(session.id))
+          .toList();
+
+      _selectedSessionIds.clear();
+      _selectionModeEnabled = _sessions.isNotEmpty;
+    });
+
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
+      SnackBar(
         content: Text(
-          "Saved session deletion will be added with ride history storage.",
+          deletedCount == 1
+              ? "Deleted 1 saved session"
+              : "Deleted $deletedCount saved sessions",
         ),
         behavior: SnackBarBehavior.floating,
-        duration: Duration(milliseconds: 1200),
+        duration: const Duration(milliseconds: 1200),
       ),
+    );
+  }
+
+  _SessionSummary _buildSummary() {
+    if (_sessions.isEmpty) {
+      return const _SessionSummary(
+        totalDistanceKm: 0,
+        averageDistanceKm: 0,
+        averageDurationMs: 0,
+        averageAverageSpeedKmph: 0,
+      );
+    }
+
+    final totalDistanceKm = _sessions.fold<double>(
+      0,
+      (sum, session) => sum + session.distanceKm,
+    );
+
+    final totalDurationMs = _sessions.fold<int>(
+      0,
+      (sum, session) => sum + session.activeDurationMs,
+    );
+
+    final totalAverageSpeed = _sessions.fold<double>(
+      0,
+      (sum, session) => sum + session.averageSpeedKmph,
+    );
+
+    return _SessionSummary(
+      totalDistanceKm: totalDistanceKm,
+      averageDistanceKm: totalDistanceKm / _sessions.length,
+      averageDurationMs: totalDurationMs ~/ _sessions.length,
+      averageAverageSpeedKmph: totalAverageSpeed / _sessions.length,
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final selectedCount = _selectedSessionIds.length;
+    final summary = _buildSummary();
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -95,50 +176,60 @@ class _SessionsScreenState extends State<SessionsScreen> {
               onSelectAll: _selectAll,
               onDeleteSelected: _deleteSelected,
             ),
-            const _SessionSummaryPanel(
-              totalDistanceKm: 0,
-              averageDistanceKm: 0,
-              averageDurationText: "0m",
-              averageAverageSpeedKmph: 0,
+            _SessionSummaryPanel(
+              totalDistanceKm: summary.totalDistanceKm,
+              averageDistanceKm: summary.averageDistanceKm,
+              averageDurationText: _formatCompactDuration(
+                summary.averageDurationMs,
+              ),
+              averageAverageSpeedKmph: summary.averageAverageSpeedKmph,
             ),
             Expanded(
-              child: _hasSessions
-                  ? ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
-                      itemCount: _sessions.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 12),
-                      itemBuilder: (context, index) {
-                        final session = _sessions[index];
-                        final selected = _selectedSessionIds.contains(
-                          session.id,
-                        );
+              child: _loading
+                  ? const _LoadingSessionsState()
+                  : _hasSessions
+                  ? RefreshIndicator(
+                      color: Colors.greenAccent,
+                      backgroundColor: const Color(0xFF121212),
+                      onRefresh: _loadSessions,
+                      child: ListView.separated(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
+                        itemCount: _sessions.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 12),
+                        itemBuilder: (context, index) {
+                          final session = _sessions[index];
+                          final selected = _selectedSessionIds.contains(
+                            session.id,
+                          );
 
-                        return _SessionCard(
-                          session: session,
-                          selectionModeEnabled: _selectionModeEnabled,
-                          selected: selected,
-                          onTap: () {
-                            if (!_selectionModeEnabled) {
-                              // Detail screen comes later.
-                              return;
-                            }
-
-                            setState(() {
-                              if (selected) {
-                                _selectedSessionIds.remove(session.id);
-                              } else {
-                                _selectedSessionIds.add(session.id);
+                          return _SessionCard(
+                            session: session,
+                            selectionModeEnabled: _selectionModeEnabled,
+                            selected: selected,
+                            onTap: () {
+                              if (!_selectionModeEnabled) {
+                                // Detail screen comes later.
+                                return;
                               }
-                            });
-                          },
-                          onLongPress: () {
-                            setState(() {
-                              _selectionModeEnabled = true;
-                              _selectedSessionIds.add(session.id);
-                            });
-                          },
-                        );
-                      },
+
+                              setState(() {
+                                if (selected) {
+                                  _selectedSessionIds.remove(session.id);
+                                } else {
+                                  _selectedSessionIds.add(session.id);
+                                }
+                              });
+                            },
+                            onLongPress: () {
+                              setState(() {
+                                _selectionModeEnabled = true;
+                                _selectedSessionIds.add(session.id);
+                              });
+                            },
+                          );
+                        },
+                      ),
                     )
                   : const _EmptySessionsState(),
             ),
@@ -391,6 +482,20 @@ class _ToolbarButton extends StatelessWidget {
   }
 }
 
+class _LoadingSessionsState extends StatelessWidget {
+  const _LoadingSessionsState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: CircularProgressIndicator(
+        color: Colors.greenAccent,
+        strokeWidth: 2.4,
+      ),
+    );
+  }
+}
+
 class _EmptySessionsState extends StatelessWidget {
   const _EmptySessionsState();
 
@@ -431,7 +536,7 @@ class _EmptySessionsState extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             const Text(
-              "Completed rides will appear here with distance, duration, speed stats, and route details once ride history storage is added.",
+              "Completed rides will appear here with distance, duration, speed stats, and route details once route history is added.",
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Colors.white38,
@@ -455,7 +560,7 @@ class _SessionCard extends StatelessWidget {
     required this.onLongPress,
   });
 
-  final _SessionPreview session;
+  final SavedRideSession session;
   final bool selectionModeEnabled;
   final bool selected;
   final VoidCallback onTap;
@@ -463,12 +568,16 @@ class _SessionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dateText = _formatSessionDate(session.endEpochMs);
+    final durationText = _formatCompactDuration(session.activeDurationMs);
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: onTap,
+      onTap: selectionModeEnabled ? onTap : null,
       onLongPress: onLongPress,
       child: Container(
-        padding: const EdgeInsets.all(14),
+        constraints: const BoxConstraints(minHeight: 118),
+        padding: const EdgeInsets.all(15),
         decoration: BoxDecoration(
           color: const Color(0xFF121212),
           borderRadius: BorderRadius.circular(24),
@@ -479,64 +588,72 @@ class _SessionCard extends StatelessWidget {
             width: selected ? 1.4 : 1,
           ),
         ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 66,
-              height: 66,
-              decoration: BoxDecoration(
-                color: Colors.black,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.08),
-                  width: 1,
-                ),
-              ),
-              child: const Icon(
-                Icons.map_outlined,
-                color: Colors.white30,
-                size: 26,
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    session.title,
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    "${session.distanceKm.toStringAsFixed(2)} km ride",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 15,
+                      fontSize: 17,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(height: 7),
-                  Text(
-                    session.subtitle,
-                    style: const TextStyle(
-                      color: Colors.white38,
-                      fontSize: 12,
-                      height: 1.3,
-                    ),
+                ),
+                if (selectionModeEnabled)
+                  Icon(
+                    selected
+                        ? Icons.check_circle_rounded
+                        : Icons.radio_button_unchecked_rounded,
+                    color: selected ? Colors.greenAccent : Colors.white24,
+                    size: 24,
                   ),
-                ],
+              ],
+            ),
+            const SizedBox(height: 5),
+            Text(
+              dateText,
+              style: const TextStyle(
+                color: Colors.white38,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
               ),
             ),
-            if (selectionModeEnabled)
-              Icon(
-                selected
-                    ? Icons.check_circle_rounded
-                    : Icons.radio_button_unchecked_rounded,
-                color: selected ? Colors.greenAccent : Colors.white24,
-                size: 24,
-              )
-            else
-              const Icon(
-                Icons.chevron_right_rounded,
-                color: Colors.white24,
-                size: 26,
-              ),
+            const SizedBox(height: 13),
+            Row(
+              children: [
+                Expanded(
+                  child: _SessionCardMetric(
+                    icon: Icons.timer_outlined,
+                    label: "Duration",
+                    value: durationText,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _SessionCardMetric(
+                    icon: Icons.speed_outlined,
+                    label: "Avg Speed",
+                    value: session.averageSpeedKmph.toStringAsFixed(1),
+                    unit: "km/h",
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _SessionCardMetric(
+                    icon: Icons.trending_up_rounded,
+                    label: "Max Speed",
+                    value: session.maxSpeedKmph.toStringAsFixed(1),
+                    unit: "km/h",
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -544,14 +661,131 @@ class _SessionCard extends StatelessWidget {
   }
 }
 
-class _SessionPreview {
-  const _SessionPreview({
-    required this.id,
-    required this.title,
-    required this.subtitle,
+class _SessionCardMetric extends StatelessWidget {
+  const _SessionCardMetric({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.unit,
   });
 
-  final String id;
-  final String title;
-  final String subtitle;
+  final IconData icon;
+  final String label;
+  final String value;
+  final String? unit;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 54),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.30),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.07),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            icon,
+            color: Colors.greenAccent.withValues(alpha: 0.75),
+            size: 15,
+          ),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  value,
+                  maxLines: 1,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (unit != null) ...[
+                  const SizedBox(width: 3),
+                  Text(
+                    unit!,
+                    maxLines: 1,
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 3),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              label,
+              maxLines: 1,
+              style: const TextStyle(
+                color: Colors.white38,
+                fontSize: 8.8,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.25,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SessionSummary {
+  const _SessionSummary({
+    required this.totalDistanceKm,
+    required this.averageDistanceKm,
+    required this.averageDurationMs,
+    required this.averageAverageSpeedKmph,
+  });
+
+  final double totalDistanceKm;
+  final double averageDistanceKm;
+  final int averageDurationMs;
+  final double averageAverageSpeedKmph;
+}
+
+String _formatCompactDuration(int durationMs) {
+  final totalSeconds = durationMs ~/ 1000;
+  final totalMinutes = totalSeconds ~/ 60;
+  final hours = totalMinutes ~/ 60;
+  final minutes = totalMinutes % 60;
+  final seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return "${hours}h ${minutes.toString().padLeft(2, "0")}m";
+  }
+
+  if (minutes > 0) {
+    return "${minutes}m";
+  }
+
+  return "${seconds}s";
+}
+
+String _formatSessionDate(int epochMs) {
+  final date = DateTime.fromMillisecondsSinceEpoch(epochMs);
+
+  final day = date.day.toString().padLeft(2, "0");
+  final month = date.month.toString().padLeft(2, "0");
+  final year = date.year.toString();
+
+  final hour = date.hour.toString().padLeft(2, "0");
+  final minute = date.minute.toString().padLeft(2, "0");
+
+  return "$day/$month/$year $hour:$minute";
 }

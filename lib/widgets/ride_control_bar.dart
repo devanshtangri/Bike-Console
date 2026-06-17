@@ -45,6 +45,7 @@ class _RideControlBarState extends State<RideControlBar>
   bool get _isRunning => rideState == RideState.running;
   bool get _isPaused => rideState == RideState.paused;
   bool get _isCountdown => rideState == RideState.countdown;
+  bool get _showActiveRideLayout => _isRunning || _isPaused;
 
   @override
   void initState() {
@@ -160,9 +161,9 @@ class _RideControlBarState extends State<RideControlBar>
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 620),
                 curve: Curves.easeInOutCubic,
-                width: _isStopped ? 0 : timerWidth,
+                width: _showActiveRideLayout ? timerWidth : 0,
                 child: AnimatedOpacity(
-                  opacity: _isStopped ? 0 : 1,
+                  opacity: _showActiveRideLayout ? 1 : 0,
                   duration: const Duration(milliseconds: 420),
                   curve: Curves.easeOutCubic,
                   child: FittedBox(
@@ -190,7 +191,7 @@ class _RideControlBarState extends State<RideControlBar>
             AnimatedContainer(
               duration: const Duration(milliseconds: 620),
               curve: Curves.easeInOutCubic,
-              width: _isStopped ? 0 : gapWidth,
+              width: _showActiveRideLayout ? gapWidth : 0,
             ),
 
             Expanded(
@@ -215,7 +216,7 @@ class _RideControlBarState extends State<RideControlBar>
         decoration: BoxDecoration(
           color: isBlockedStart
               ? Colors.redAccent
-              : isPaused || isStart
+              : isPaused || isStart || _isCountdown
               ? AppColors.premiumGreen
               : const Color(0xFFFFC928),
           borderRadius: BorderRadius.circular(12),
@@ -345,8 +346,11 @@ class _RideControlBarState extends State<RideControlBar>
     final isStart = _isStopped;
     final isPaused = _isPaused;
     final isBlockedStart = isStart && !canStart;
+    final isStarting = _isCountdown;
 
-    final icon = isBlockedStart
+    final IconData? icon = isStarting
+        ? null
+        : isBlockedStart
         ? Icons.memory_rounded
         : isStart || isPaused
         ? Icons.play_arrow_rounded
@@ -354,7 +358,7 @@ class _RideControlBarState extends State<RideControlBar>
 
     final label = isBlockedStart
         ? "Connect a Console"
-        : _isCountdown
+        : isStarting
         ? "Starting"
         : isStart
         ? "Start"
@@ -366,18 +370,22 @@ class _RideControlBarState extends State<RideControlBar>
       key: ValueKey(label),
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, color: Colors.black, size: isStart ? 28 : 24),
-        SizedBox(width: isStart ? 8 : 6),
+        if (icon != null) ...[
+          Icon(icon, color: Colors.black, size: isStart ? 28 : 24),
+          SizedBox(width: isStart ? 8 : 6),
+        ],
         Text(
           label,
           style: TextStyle(
             color: Colors.black,
             fontSize: isBlockedStart
                 ? 18
-                : isStart
+                : isStart || isStarting
                 ? 21
                 : 20,
-            fontWeight: isStart ? FontWeight.w700 : FontWeight.w600,
+            fontWeight: isStart || isStarting
+                ? FontWeight.w700
+                : FontWeight.w600,
           ),
         ),
       ],

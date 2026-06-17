@@ -114,6 +114,16 @@ class _DashboardScreenState extends State<DashboardScreen>
       _countdownValue = null;
     });
 
+    // Let Flutter render one clean frame with the overlay removed while the
+    // control bar is still in its wide green "Starting" state.
+    await WidgetsBinding.instance.endOfFrame;
+
+    if (!mounted) return;
+
+    await Future.delayed(const Duration(milliseconds: 90));
+
+    if (!mounted) return;
+
     rideController.finishCountdownAndStartRide();
   }
 
