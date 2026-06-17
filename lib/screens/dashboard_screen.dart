@@ -7,7 +7,6 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../bike_data.dart';
 import '../controllers/map_tracking_controller.dart';
 import '../controllers/bike_console_controller.dart';
-import '../models/ride_models.dart';
 import '../map_styles/dark_map_style.dart';
 import '../widgets/dashboard_stat_card.dart';
 import '../widgets/hex_settings_button.dart';
@@ -35,10 +34,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   late final Animation<double> _recenterPulseAnimation;
 
   int? _countdownValue;
-  bool _debugLeftPhysical = false;
-  bool _debugRightPhysical = false;
-  bool _debugMoving = true;
-  Timer? _debugMovingPacketTimer;
   bool _manualReconnectPulse = false;
 
   @override
@@ -81,7 +76,6 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     _mapTrackingController.removeListener(_onMapTrackingChanged);
     _mapTrackingController.dispose();
-    _debugMovingPacketTimer?.cancel();
     _recenterPulseController.dispose();
 
     super.dispose();
@@ -126,160 +120,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (!mounted) return;
 
     rideController.finishCountdownAndStartRide();
-  }
-
-  void _injectDebugBikeData() {
-    HapticFeedback.mediumImpact();
-    _debugMoving = true;
-    _debugMovingPacketTimer?.cancel();
-
-    _debugLeftPhysical = false;
-    _debugRightPhysical = false;
-
-    widget.bikeConsoleController.connectionController.setConnectionState(
-      ConsoleConnectionState.connected,
-    );
-
-    widget.bikeConsoleController.injectDebugSensorPacket(
-      rpm: 90,
-      distanceKm: 0.25,
-      isMoving: true,
-      leftPhysical: _debugLeftPhysical,
-      rightPhysical: _debugRightPhysical,
-      hazardOutput: false,
-      consoleRideActive: true,
-    );
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("Debug packet injected: 90 RPM, no indicators"),
-        duration: Duration(milliseconds: 900),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
-  void _toggleDebugPhysicalIndicator({required bool leftSide}) {
-    HapticFeedback.selectionClick();
-
-    widget.bikeConsoleController.connectionController.setConnectionState(
-      ConsoleConnectionState.connected,
-    );
-
-    setState(() {
-      if (leftSide) {
-        _debugLeftPhysical = !_debugLeftPhysical;
-      } else {
-        _debugRightPhysical = !_debugRightPhysical;
-      }
-    });
-
-    widget.bikeConsoleController.injectDebugSensorPacket(
-      rpm: 90,
-      distanceKm: 0.25,
-      isMoving: true,
-      leftPhysical: _debugLeftPhysical,
-      rightPhysical: _debugRightPhysical,
-      hazardOutput: false,
-      consoleRideActive: true,
-    );
-
-    final message = leftSide
-        ? "Debug left physical indicator: ${_debugLeftPhysical ? "ON" : "OFF"}"
-        : "Debug right physical indicator: ${_debugRightPhysical ? "ON" : "OFF"}";
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        duration: const Duration(milliseconds: 800),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
-  void _toggleDebugMovingPacket() {
-    HapticFeedback.selectionClick();
-
-    widget.bikeConsoleController.connectionController.setConnectionState(
-      ConsoleConnectionState.connected,
-    );
-
-    setState(() {
-      _debugMoving = !_debugMoving;
-    });
-
-    _debugMovingPacketTimer?.cancel();
-
-    if (_debugMoving) {
-      _sendDebugMovingPacket(isMoving: true);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Debug motion: moving TRUE"),
-          duration: Duration(milliseconds: 800),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-
-      return;
-    }
-
-    _sendDebugMovingPacket(isMoving: false);
-
-    _debugMovingPacketTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) return;
-
-      final rideState =
-          widget.bikeConsoleController.rideSessionController.state;
-
-      if (rideState.rideState == RideState.stopped) {
-        _debugMovingPacketTimer?.cancel();
-        return;
-      }
-
-      _sendDebugMovingPacket(isMoving: false);
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("Debug motion: moving FALSE packets started"),
-        duration: Duration(milliseconds: 900),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
-  void _sendDebugMovingPacket({required bool isMoving}) {
-    final rideState = widget.bikeConsoleController.rideSessionController.state;
-
-    widget.bikeConsoleController.injectDebugSensorPacket(
-      rpm: isMoving ? 90 : 0,
-      distanceKm: rideState.distanceKm > 0 ? rideState.distanceKm : 0.25,
-      isMoving: isMoving,
-      leftPhysical: _debugLeftPhysical,
-      rightPhysical: _debugRightPhysical,
-      hazardOutput: rideState.hazardEnabled,
-      consoleRideActive: rideState.isRideActive,
-    );
-  }
-
-  void _injectDebugDisconnect() {
-    HapticFeedback.mediumImpact();
-
-    _debugMovingPacketTimer?.cancel();
-    _debugMoving = true;
-
-    widget.bikeConsoleController.connectionController.setConnectionState(
-      ConsoleConnectionState.disconnected,
-    );
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("Debug disconnect injected"),
-        duration: Duration(milliseconds: 900),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
   }
 
   String _formatSpeedStat(double value) {
@@ -420,7 +260,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
       onTap: isConnected ? null : _forceConsoleReconnect,
-      onLongPress: isConnected ? _injectDebugDisconnect : null,
       child: Container(
         width: 48,
         height: 48,
@@ -539,15 +378,12 @@ class _DashboardScreenState extends State<DashboardScreen>
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  GestureDetector(
-                    onLongPress: _injectDebugBikeData,
-                    child: const Text(
-                      "Bike Console",
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
+                  const Text(
+                    "Bike Console",
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
                     ),
                   ),
 
@@ -713,12 +549,6 @@ class _DashboardScreenState extends State<DashboardScreen>
                               .bikeConsoleController
                               .rideSessionController
                               .toggleAppRightIndicator,
-                          onLeftArrowLongPress: () {
-                            _toggleDebugPhysicalIndicator(leftSide: true);
-                          },
-                          onRightArrowLongPress: () {
-                            _toggleDebugPhysicalIndicator(leftSide: false);
-                          },
                           liteMode: liteMode,
                         ),
                       ),
@@ -753,7 +583,6 @@ class _DashboardScreenState extends State<DashboardScreen>
                                     ),
                                     icon: Icons.rotate_right_outlined,
                                     liteMode: liteMode,
-                                    onLongPress: _toggleDebugMovingPacket,
                                   ),
                                 ),
                               ],

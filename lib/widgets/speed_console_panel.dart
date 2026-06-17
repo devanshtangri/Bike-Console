@@ -11,8 +11,6 @@ class SpeedConsolePanel extends StatefulWidget {
   final VoidCallback onHazardTap;
   final VoidCallback onLeftArrowTap;
   final VoidCallback onRightArrowTap;
-  final VoidCallback onLeftArrowLongPress;
-  final VoidCallback onRightArrowLongPress;
   final bool liteMode;
 
   const SpeedConsolePanel({
@@ -25,8 +23,6 @@ class SpeedConsolePanel extends StatefulWidget {
     required this.onHazardTap,
     required this.onLeftArrowTap,
     required this.onRightArrowTap,
-    required this.onLeftArrowLongPress,
-    required this.onRightArrowLongPress,
     this.liteMode = false,
   });
 
@@ -100,7 +96,6 @@ class _SpeedConsolePanelState extends State<SpeedConsolePanel>
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: widget.controlsEnabled ? widget.onLeftArrowTap : null,
-                  onLongPress: widget.onLeftArrowLongPress,
                   child: Center(
                     child: _IndicatorIcon(
                       icon: Icons.arrow_back,
@@ -152,7 +147,6 @@ class _SpeedConsolePanelState extends State<SpeedConsolePanel>
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: widget.controlsEnabled ? widget.onRightArrowTap : null,
-                  onLongPress: widget.onRightArrowLongPress,
                   child: Center(
                     child: _IndicatorIcon(
                       icon: Icons.arrow_forward,
