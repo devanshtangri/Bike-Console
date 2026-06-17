@@ -176,6 +176,22 @@ class BikeConnectionController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> reconnectNow() async {
+    if (_isDisposed || isConnected) return;
+
+    _manualDisconnect = false;
+    _autoReconnectEnabled = true;
+
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+
+    if (_isConnecting) {
+      return;
+    }
+
+    await connectToBikeConsole();
+  }
+
   Future<void> connectToBikeConsole() async {
     if (_isDisposed || _isConnecting || isConnected) return;
 

@@ -39,6 +39,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   bool _debugRightPhysical = false;
   bool _debugMoving = true;
   Timer? _debugMovingPacketTimer;
+  bool _manualReconnectPulse = false;
 
   @override
   void initState() {
@@ -297,41 +298,174 @@ class _DashboardScreenState extends State<DashboardScreen>
     return "${value.toStringAsFixed(2)} km";
   }
 
-  bool _isBikeDeviceConnected() {
-    return widget.bikeConsoleController.connectionController.isConnected;
+  Future<void> _forceConsoleReconnect() async {
+    HapticFeedback.selectionClick();
+
+    setState(() {
+      _manualReconnectPulse = true;
+    });
+
+    await widget.bikeConsoleController.connectionController.reconnectNow();
+
+    if (!mounted) return;
+
+    setState(() {
+      _manualReconnectPulse = false;
+    });
+  }
+
+  void _stopRide() {
+    final wasSaved = widget.bikeConsoleController.rideSessionController
+        .stopRide();
+
+    if (wasSaved) return;
+
+    _showRideTooShortToast();
+  }
+
+  void _showRideTooShortToast() {
+    final overlay = Overlay.of(context);
+
+    late final OverlayEntry entry;
+
+    entry = OverlayEntry(
+      builder: (context) {
+        final topOffset = MediaQuery.of(context).padding.top + 76;
+
+        return Positioned(
+          top: topOffset,
+          left: 24,
+          right: 24,
+          child: IgnorePointer(
+            child: Center(
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0.0, end: 1.0),
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                builder: (context, value, child) {
+                  return Opacity(
+                    opacity: value,
+                    child: Transform.translate(
+                      offset: Offset(0, (1 - value) * -8),
+                      child: child,
+                    ),
+                  );
+                },
+                child: Material(
+                  color: Colors.transparent,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 11,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF181818).withValues(alpha: 0.92),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.12),
+                        width: 1,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.45),
+                          blurRadius: 22,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.info_outline_rounded,
+                          color: Colors.white.withValues(alpha: 0.72),
+                          size: 18,
+                        ),
+                        const SizedBox(width: 9),
+                        Text(
+                          "Ride too short — not saved",
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.88),
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    overlay.insert(entry);
+
+    Future.delayed(const Duration(milliseconds: 1700), () {
+      if (mounted) {
+        entry.remove();
+      }
+    });
   }
 
   Widget _buildDeviceConnectedBadge() {
-    final isConnected = _isBikeDeviceConnected();
+    final isConnected =
+        widget.bikeConsoleController.connectionController.isConnected;
+
+    final shouldPulse = !isConnected && _manualReconnectPulse;
+    final shouldShowSlash = !isConnected && !_manualReconnectPulse;
 
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
+      onTap: isConnected ? null : _forceConsoleReconnect,
       onLongPress: isConnected ? _injectDebugDisconnect : null,
-      child: AnimatedScale(
-        scale: isConnected ? 1 : 0.86,
-        duration: const Duration(milliseconds: 360),
-        curve: Curves.easeOutCubic,
-        child: AnimatedOpacity(
-          opacity: isConnected ? 1 : 0,
-          duration: const Duration(milliseconds: 260),
-          curve: Curves.easeOutCubic,
-          child: Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: const Color(0xFF121212),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.10),
-                width: 1,
-              ),
-            ),
-            child: Icon(
-              Icons.memory_rounded,
-              color: AppColors.premiumGreen,
-              size: 25,
-            ),
+      child: Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          color: const Color(0xFF181818).withValues(alpha: 0.72),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.12),
+            width: 1,
           ),
+        ),
+        child: AnimatedBuilder(
+          animation: _recenterPulseAnimation,
+          builder: (context, child) {
+            final pulseValue = _recenterPulseAnimation.value;
+            final iconAlpha = shouldPulse
+                ? 0.42 + ((pulseValue - 0.55) / 0.45 * 0.18)
+                : 0.42;
+
+            return Stack(
+              alignment: Alignment.center,
+              children: [
+                Icon(
+                  Icons.memory_rounded,
+                  color: isConnected
+                      ? AppColors.premiumGreen
+                      : Colors.white.withValues(alpha: iconAlpha),
+                  size: 25,
+                ),
+
+                if (shouldShowSlash)
+                  Transform.rotate(
+                    angle: -0.72,
+                    child: Container(
+                      width: 31,
+                      height: 2.4,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.48),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -387,7 +521,8 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   @override
   Widget build(BuildContext context) {
-    final rideState = widget.bikeConsoleController.rideSessionController.state;
+    final rideController = widget.bikeConsoleController.rideSessionController;
+    final rideState = rideController.state;
     final isConsoleConnected =
         widget.bikeConsoleController.connectionController.isConnected;
     final screenWidth = MediaQuery.of(context).size.width;
@@ -565,7 +700,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                               isConsoleConnected && rideState.leftArrowActive,
                           rightArrowActive:
                               isConsoleConnected && rideState.rightArrowActive,
-                          controlsEnabled: isConsoleConnected,
+                          controlsEnabled: true,
                           onHazardTap: widget
                               .bikeConsoleController
                               .rideSessionController
@@ -731,10 +866,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                               .bikeConsoleController
                               .rideSessionController
                               .resumeRide,
-                          onStop: widget
-                              .bikeConsoleController
-                              .rideSessionController
-                              .stopRide,
+                          onStop: _stopRide,
                         ),
                       ),
                     ],

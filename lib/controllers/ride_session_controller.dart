@@ -20,6 +20,7 @@ class RideSessionController extends ChangeNotifier {
 
   static const int _averageSpeedDisplayRefreshMs = 5000;
   static const int _consoleSyncThrottleMs = 1500;
+  static const int _minimumSavedRideDurationMs = 60000;
 
   RideSessionState _state = RideSessionState.initial();
   RideSettings _settings = RideSettings.defaults();
@@ -339,14 +340,14 @@ class RideSessionController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void stopRide() {
+  bool stopRide() {
     final completedState = _state;
     final endEpochMs = DateTime.now().millisecondsSinceEpoch;
     final activeDurationMs = calculateActiveDurationMs(nowEpochMs: endEpochMs);
 
     final shouldSaveSession =
         completedState.rideStartEpochMs != null &&
-        (completedState.distanceKm > 0 || activeDurationMs > 0);
+        activeDurationMs >= _minimumSavedRideDurationMs;
 
     if (shouldSaveSession) {
       final calculatedAverageSpeed = activeDurationMs > 0
@@ -366,11 +367,7 @@ class RideSessionController extends ChangeNotifier {
       );
     }
 
-    _state = RideSessionState.initial().copyWith(
-      hazardEnabled: completedState.hazardEnabled,
-      appLeftIndicator: completedState.appLeftIndicator,
-      appRightIndicator: completedState.appRightIndicator,
-    );
+    _state = RideSessionState.initial();
 
     _notMovingSinceEpochMs = null;
     _lastSnapshotSaveEpochMs = null;
@@ -384,6 +381,8 @@ class RideSessionController extends ChangeNotifier {
     _stopDurationTicker();
 
     notifyListeners();
+
+    return shouldSaveSession;
   }
 
   int calculateActiveDurationMs({int? nowEpochMs}) {

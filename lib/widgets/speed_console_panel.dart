@@ -115,7 +115,7 @@ class _SpeedConsolePanelState extends State<SpeedConsolePanel>
                 flex: 2,
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: widget.controlsEnabled ? widget.onHazardTap : null,
+                  onTap: widget.onHazardTap,
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -166,7 +166,7 @@ class _SpeedConsolePanelState extends State<SpeedConsolePanel>
 
   @override
   Widget build(BuildContext context) {
-    final hazardTapHandler = widget.controlsEnabled ? widget.onHazardTap : null;
+    final hazardTapHandler = widget.onHazardTap;
 
     return AnimatedBuilder(
       animation: _blinkController,
