@@ -22,6 +22,7 @@ class RideSessionController extends ChangeNotifier {
   static const int _averageSpeedDisplayRefreshMs = 5000;
   static const int _consoleSyncThrottleMs = 1500;
   static const int _minimumSavedRideDurationMs = 60000;
+  static const int _indicatorCommandSettleMs = 450;
 
   RideSessionState _state = RideSessionState.initial();
   RideSettings _settings = RideSettings.defaults();
@@ -31,6 +32,7 @@ class RideSessionController extends ChangeNotifier {
   int? _lastSnapshotSaveEpochMs;
   int? _lastAverageSpeedUpdateEpochMs;
   int? _lastConsoleSyncEpochMs;
+  int? _lastIndicatorCommandEpochMs;
 
   Timer? _durationTicker;
 
@@ -65,6 +67,7 @@ class RideSessionController extends ChangeNotifier {
     if (isConsoleConnected) {
       _syncConsoleStateWithApp(force: true);
     } else {
+      _lastIndicatorCommandEpochMs = null;
       _state = _state.copyWith(
         currentRpm: 0,
         currentSpeedKmph: 0,
@@ -163,10 +166,24 @@ class RideSessionController extends ChangeNotifier {
     final espDistanceWasLower =
         _state.isRideActive && packet.distanceKm + 0.00001 < nextDistanceKm;
 
-    final resolvedLeftOutput = _resolveLeftOutputFromPacket(packet);
-    final resolvedRightOutput = _resolveRightOutputFromPacket(packet);
-
     final physicalIndicatorActive = packet.leftPhysical || packet.rightPhysical;
+
+    final indicatorPacketIsSettling =
+        !physicalIndicatorActive &&
+        _lastIndicatorCommandEpochMs != null &&
+        nowEpochMs - _lastIndicatorCommandEpochMs! < _indicatorCommandSettleMs;
+
+    if (!indicatorPacketIsSettling && _lastIndicatorCommandEpochMs != null) {
+      _lastIndicatorCommandEpochMs = null;
+    }
+
+    final resolvedLeftOutput = indicatorPacketIsSettling
+        ? _state.leftOutputActive
+        : _resolveLeftOutputFromPacket(packet);
+
+    final resolvedRightOutput = indicatorPacketIsSettling
+        ? _state.rightOutputActive
+        : _resolveRightOutputFromPacket(packet);
 
     _state = _state.copyWith(
       currentRpm: packet.rpm,
@@ -182,8 +199,16 @@ class RideSessionController extends ChangeNotifier {
       leftOutputActive: resolvedLeftOutput,
       rightOutputActive: resolvedRightOutput,
 
-      appLeftIndicator: physicalIndicatorActive ? false : packet.appLeft,
-      appRightIndicator: physicalIndicatorActive ? false : packet.appRight,
+      appLeftIndicator: physicalIndicatorActive
+          ? false
+          : indicatorPacketIsSettling
+          ? _state.appLeftIndicator
+          : packet.appLeft,
+      appRightIndicator: physicalIndicatorActive
+          ? false
+          : indicatorPacketIsSettling
+          ? _state.appRightIndicator
+          : packet.appRight,
     );
 
     if (espDistanceWasLower) {
@@ -210,6 +235,7 @@ class RideSessionController extends ChangeNotifier {
 
   void toggleHazard() {
     final nextHazardState = !_state.hazardEnabled;
+    _lastIndicatorCommandEpochMs = DateTime.now().millisecondsSinceEpoch;
     final hasPhysicalOverride =
         _state.leftPhysicalIndicator || _state.rightPhysicalIndicator;
 
@@ -240,6 +266,7 @@ class RideSessionController extends ChangeNotifier {
   void toggleAppLeftIndicator() {
     final hasPhysicalOverride =
         _state.leftPhysicalIndicator || _state.rightPhysicalIndicator;
+    _lastIndicatorCommandEpochMs = DateTime.now().millisecondsSinceEpoch;
 
     final nextLeftState = !_state.appLeftIndicator;
     final nextRightState = nextLeftState ? false : _state.appRightIndicator;
@@ -275,6 +302,7 @@ class RideSessionController extends ChangeNotifier {
   void toggleAppRightIndicator() {
     final hasPhysicalOverride =
         _state.leftPhysicalIndicator || _state.rightPhysicalIndicator;
+    _lastIndicatorCommandEpochMs = DateTime.now().millisecondsSinceEpoch;
 
     final nextRightState = !_state.appRightIndicator;
     final nextLeftState = nextRightState ? false : _state.appLeftIndicator;
@@ -463,6 +491,7 @@ class RideSessionController extends ChangeNotifier {
     _lastSnapshotSaveEpochMs = null;
     _lastAverageSpeedUpdateEpochMs = null;
     _lastConsoleSyncEpochMs = null;
+    _lastIndicatorCommandEpochMs = null;
 
     onCommand?.call(BikeCommand.stop());
     _syncConsoleStateWithApp(force: true);
