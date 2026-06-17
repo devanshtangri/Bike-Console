@@ -123,6 +123,344 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _showSnackBar(value ? "Lite Mode enabled" : "Lite Mode disabled");
   }
 
+
+  bool get _rideDataEditingAvailable {
+    final rideState = widget.bikeConsoleController.rideSessionController.state;
+
+    return rideState.rideState == RideState.running ||
+        rideState.rideState == RideState.paused;
+  }
+
+  Future<void> _showEditRideDataSheet() async {
+    final rideController = widget.bikeConsoleController.rideSessionController;
+    final rideState = rideController.state;
+
+    if (!_rideDataEditingAvailable) {
+      return;
+    }
+
+    final elapsedMs = rideController.calculateActiveDurationMs();
+    final totalSeconds = elapsedMs ~/ 1000;
+
+    final distanceController = TextEditingController(
+      text: rideState.distanceKm.toStringAsFixed(2),
+    );
+
+    final averageSpeedController = TextEditingController(
+      text: rideState.averageSpeedKmph.toStringAsFixed(1),
+    );
+
+    final maxSpeedController = TextEditingController(
+      text: rideState.maxSpeedKmph.toStringAsFixed(1),
+    );
+
+    final hoursController = TextEditingController(
+      text: (totalSeconds ~/ 3600).toString(),
+    );
+
+    final minutesController = TextEditingController(
+      text: ((totalSeconds % 3600) ~/ 60).toString(),
+    );
+
+    final secondsController = TextEditingController(
+      text: (totalSeconds % 60).toString(),
+    );
+
+    var saved = false;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 12,
+            right: 12,
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 12,
+          ),
+          child: SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
+              decoration: BoxDecoration(
+                color: const Color(0xFF121212),
+                borderRadius: BorderRadius.circular(30),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.10),
+                  width: 1,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    blurRadius: 28,
+                    offset: const Offset(0, 16),
+                  ),
+                ],
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 42,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.22),
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        Container(
+                          width: 46,
+                          height: 46,
+                          decoration: BoxDecoration(
+                            color: Colors.greenAccent.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(17),
+                            border: Border.all(
+                              color: Colors.greenAccent.withValues(alpha: 0.25),
+                              width: 1,
+                            ),
+                          ),
+                          child: const Icon(
+                            Icons.tune_rounded,
+                            color: Colors.greenAccent,
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 13),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "Edit Ride Data",
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 21,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              SizedBox(height: 3),
+                              Text(
+                                "Adjust the active ride values.",
+                                style: TextStyle(
+                                  color: Colors.white38,
+                                  fontSize: 12.5,
+                                  height: 1.25,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    _RideDataInputField(
+                      label: "Distance",
+                      controller: distanceController,
+                      suffixText: "km",
+                      hintText: "0.00",
+                      decimal: true,
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _RideDataInputField(
+                            label: "Average Speed",
+                            controller: averageSpeedController,
+                            suffixText: "km/h",
+                            hintText: "0.0",
+                            decimal: true,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _RideDataInputField(
+                            label: "Max Speed",
+                            controller: maxSpeedController,
+                            suffixText: "km/h",
+                            hintText: "0.0",
+                            decimal: true,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    const Text(
+                      "Elapsed Time",
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _RideDataInputField(
+                            label: "Hours",
+                            controller: hoursController,
+                            suffixText: "h",
+                            hintText: "0",
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _RideDataInputField(
+                            label: "Minutes",
+                            controller: minutesController,
+                            suffixText: "m",
+                            hintText: "0",
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _RideDataInputField(
+                            label: "Seconds",
+                            controller: secondsController,
+                            suffixText: "s",
+                            hintText: "0",
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 22),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SizedBox(
+                            height: 48,
+                            child: OutlinedButton(
+                              onPressed: () {
+                                Navigator.pop(sheetContext);
+                              },
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.white70,
+                                side: BorderSide(
+                                  color: Colors.white.withValues(alpha: 0.18),
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                              child: const Text("Cancel"),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SizedBox(
+                            height: 48,
+                            child: ElevatedButton(
+                              onPressed: () {
+                                final distance = double.tryParse(
+                                  distanceController.text.trim(),
+                                );
+
+                                final averageSpeed = double.tryParse(
+                                  averageSpeedController.text.trim(),
+                                );
+
+                                final maxSpeed = double.tryParse(
+                                  maxSpeedController.text.trim(),
+                                );
+
+                                final hours = int.tryParse(
+                                  hoursController.text.trim(),
+                                );
+
+                                final minutes = int.tryParse(
+                                  minutesController.text.trim(),
+                                );
+
+                                final seconds = int.tryParse(
+                                  secondsController.text.trim(),
+                                );
+
+                                if (distance == null ||
+                                    distance < 0 ||
+                                    averageSpeed == null ||
+                                    averageSpeed < 0 ||
+                                    maxSpeed == null ||
+                                    maxSpeed < 0 ||
+                                    hours == null ||
+                                    hours < 0 ||
+                                    minutes == null ||
+                                    minutes < 0 ||
+                                    minutes > 59 ||
+                                    seconds == null ||
+                                    seconds < 0 ||
+                                    seconds > 59) {
+                                  _showSnackBar("Enter valid ride data");
+                                  return;
+                                }
+
+                                if (maxSpeed < averageSpeed) {
+                                  _showSnackBar(
+                                    "Max speed should be at least average speed",
+                                  );
+                                  return;
+                                }
+
+                                final activeDurationMs =
+                                    (((hours * 60) + minutes) * 60 + seconds) *
+                                    1000;
+
+                                rideController.editCurrentRideData(
+                                  distanceKm: distance,
+                                  averageSpeedKmph: averageSpeed,
+                                  maxSpeedKmph: maxSpeed,
+                                  activeDurationMs: activeDurationMs,
+                                );
+
+                                saved = true;
+                                Navigator.pop(sheetContext);
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.greenAccent,
+                                foregroundColor: Colors.black,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                              child: const Text(
+                                "Save",
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    distanceController.dispose();
+    averageSpeedController.dispose();
+    maxSpeedController.dispose();
+    hoursController.dispose();
+    minutesController.dispose();
+    secondsController.dispose();
+
+    if (!mounted || !saved) return;
+
+    _showSnackBar("Ride data updated");
+  }
+
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -184,6 +522,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final connectionController =
         widget.bikeConsoleController.connectionController;
+
+    final rideState = widget.bikeConsoleController.rideSessionController.state;
+    final showEditRideData =
+        rideState.rideState == RideState.running ||
+        rideState.rideState == RideState.paused;
 
     final hasSavedDevice = connectionController.hasSavedConsole;
     final hasConnectedConsole = connectionController.connectedDeviceId != null;
@@ -315,6 +658,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ],
           ),
+          if (showEditRideData) ...[
+            const SizedBox(height: 16),
+            _SettingsCard(
+              title: "Active Ride",
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF121212),
+                      borderRadius: BorderRadius.circular(15),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.10),
+                        width: 1,
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.tune_rounded,
+                      color: Colors.greenAccent,
+                      size: 22,
+                    ),
+                  ),
+                  title: const Text(
+                    "Edit Ride Data",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  trailing: const Icon(
+                    Icons.chevron_right_rounded,
+                    color: Colors.white38,
+                  ),
+                  onTap: _showEditRideDataSheet,
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 16),
           _SettingsCard(
             title: "Display & Performance",
@@ -429,6 +812,80 @@ class _SettingsScreenState extends State<SettingsScreen> {
         borderRadius: BorderRadius.circular(16),
         borderSide: const BorderSide(color: Colors.redAccent),
       ),
+    );
+  }
+}
+
+
+class _RideDataInputField extends StatelessWidget {
+  const _RideDataInputField({
+    required this.label,
+    required this.controller,
+    required this.suffixText,
+    required this.hintText,
+    this.decimal = false,
+  });
+
+  final String label;
+  final TextEditingController controller;
+  final String suffixText;
+  final String hintText;
+  final bool decimal;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: Colors.white54,
+            fontSize: 11.5,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 7),
+        TextField(
+          controller: controller,
+          keyboardType: TextInputType.numberWithOptions(decimal: decimal),
+          inputFormatters: [
+            decimal
+                ? FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}'))
+                : FilteringTextInputFormatter.digitsOnly,
+          ],
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+          ),
+          decoration: InputDecoration(
+            hintText: hintText,
+            suffixText: suffixText,
+            hintStyle: const TextStyle(color: Colors.white24),
+            suffixStyle: const TextStyle(color: Colors.white54, fontSize: 12),
+            filled: true,
+            fillColor: Colors.black.withValues(alpha: 0.30),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 12,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(
+                color: Colors.white.withValues(alpha: 0.10),
+              ),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(
+                color: Colors.greenAccent.withValues(alpha: 0.65),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

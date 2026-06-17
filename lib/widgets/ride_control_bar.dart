@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -33,6 +35,9 @@ class _RideControlBarState extends State<RideControlBar>
   late final AnimationController _blockedTapController;
   late final Animation<double> _blockedTapAnimation;
 
+  Timer? _startPrimeTimer;
+  bool _startVisualPrimed = false;
+
   RideState get rideState => widget.rideState;
   bool get canStart => widget.canStart;
   String get timerText => widget.timerText;
@@ -45,6 +50,7 @@ class _RideControlBarState extends State<RideControlBar>
   bool get _isRunning => rideState == RideState.running;
   bool get _isPaused => rideState == RideState.paused;
   bool get _isCountdown => rideState == RideState.countdown;
+  bool get _isVisuallyStarting => _isCountdown || _startVisualPrimed;
   bool get _showActiveRideLayout => _isRunning || _isPaused;
 
   @override
@@ -72,7 +78,19 @@ class _RideControlBarState extends State<RideControlBar>
   }
 
   @override
+  void didUpdateWidget(covariant RideControlBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (widget.rideState != RideState.stopped && _startVisualPrimed) {
+      _startVisualPrimed = false;
+      _startPrimeTimer?.cancel();
+      _startPrimeTimer = null;
+    }
+  }
+
+  @override
   void dispose() {
+    _startPrimeTimer?.cancel();
     _blockedTapController.dispose();
     super.dispose();
   }
@@ -80,6 +98,20 @@ class _RideControlBarState extends State<RideControlBar>
   void _handleBlockedStartTap() {
     HapticFeedback.mediumImpact();
     _blockedTapController.forward(from: 0);
+  }
+
+  void _handleStartTap() {
+    if (_startVisualPrimed) return;
+
+    setState(() {
+      _startVisualPrimed = true;
+    });
+
+    _startPrimeTimer?.cancel();
+    _startPrimeTimer = Timer(const Duration(milliseconds: 210), () {
+      if (!mounted) return;
+      onStart();
+    });
   }
 
   Future<void> _showStopConfirmation(BuildContext context) async {
@@ -216,7 +248,7 @@ class _RideControlBarState extends State<RideControlBar>
         decoration: BoxDecoration(
           color: isBlockedStart
               ? Colors.redAccent
-              : isPaused || isStart || _isCountdown
+              : isPaused || isStart || _isVisuallyStarting
               ? AppColors.premiumGreen
               : const Color(0xFFFFC928),
           borderRadius: BorderRadius.circular(12),
@@ -226,7 +258,7 @@ class _RideControlBarState extends State<RideControlBar>
             Positioned.fill(
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: _isCountdown
+                onTap: _isCountdown || _startVisualPrimed
                     ? null
                     : () {
                         if (isBlockedStart) {
@@ -235,7 +267,7 @@ class _RideControlBarState extends State<RideControlBar>
                         }
 
                         if (_isStopped) {
-                          onStart();
+                          _handleStartTap();
                         } else if (_isRunning) {
                           onPause();
                         } else if (_isPaused) {
@@ -265,20 +297,20 @@ class _RideControlBarState extends State<RideControlBar>
                         child: FittedBox(
                           fit: BoxFit.scaleDown,
                           child: AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 620),
-                            reverseDuration: const Duration(milliseconds: 620),
-                            switchInCurve: Curves.easeInOutCubic,
-                            switchOutCurve: Curves.easeInOutCubic,
+                            duration: const Duration(milliseconds: 260),
+                            reverseDuration: const Duration(milliseconds: 200),
+                            switchInCurve: Curves.easeOutCubic,
+                            switchOutCurve: Curves.easeInCubic,
+                            layoutBuilder: (currentChild, previousChildren) {
+                              return Stack(
+                                alignment: Alignment.center,
+                                children: [...previousChildren, ?currentChild],
+                              );
+                            },
                             transitionBuilder: (child, animation) {
                               return FadeTransition(
                                 opacity: animation,
-                                child: ScaleTransition(
-                                  scale: Tween<double>(
-                                    begin: 0.96,
-                                    end: 1.0,
-                                  ).animate(animation),
-                                  child: child,
-                                ),
+                                child: child,
                               );
                             },
                             child: _rideActionContent(),
@@ -346,7 +378,7 @@ class _RideControlBarState extends State<RideControlBar>
     final isStart = _isStopped;
     final isPaused = _isPaused;
     final isBlockedStart = isStart && !canStart;
-    final isStarting = _isCountdown;
+    final isStarting = _isVisuallyStarting;
 
     final IconData? icon = isStarting
         ? null
@@ -366,14 +398,18 @@ class _RideControlBarState extends State<RideControlBar>
         ? "Resume"
         : "Pause";
 
+    final leadingWidgets = icon == null
+        ? <Widget>[]
+        : <Widget>[
+            Icon(icon, color: Colors.black, size: isStart ? 28 : 24),
+            SizedBox(width: isStart ? 8 : 6),
+          ];
+
     return Row(
       key: ValueKey(label),
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (icon != null) ...[
-          Icon(icon, color: Colors.black, size: isStart ? 28 : 24),
-          SizedBox(width: isStart ? 8 : 6),
-        ],
+        ...leadingWidgets,
         Text(
           label,
           style: TextStyle(

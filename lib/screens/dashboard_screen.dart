@@ -170,7 +170,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     entry = OverlayEntry(
       builder: (context) {
-        final topOffset = MediaQuery.of(context).padding.top + 76;
+        final topOffset = MediaQuery.of(context).padding.top + 91;
 
         return Positioned(
           top: topOffset,
