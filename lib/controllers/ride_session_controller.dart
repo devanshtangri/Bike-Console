@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+
 import '../models/ride_models.dart';
-import '../services/ride_persistence_service.dart';
 import '../models/saved_ride_session.dart';
 import '../services/ride_history_service.dart';
+import '../services/ride_persistence_service.dart';
 
 class RideSessionController extends ChangeNotifier {
   RideSessionController({
@@ -68,6 +69,10 @@ class RideSessionController extends ChangeNotifier {
         currentRpm: 0,
         currentSpeedKmph: 0,
         speedSource: SpeedSource.none,
+        leftPhysicalIndicator: false,
+        rightPhysicalIndicator: false,
+        leftOutputActive: false,
+        rightOutputActive: false,
       );
     }
 
@@ -158,6 +163,11 @@ class RideSessionController extends ChangeNotifier {
     final espDistanceWasLower =
         _state.isRideActive && packet.distanceKm + 0.00001 < nextDistanceKm;
 
+    final resolvedLeftOutput = _resolveLeftOutputFromPacket(packet);
+    final resolvedRightOutput = _resolveRightOutputFromPacket(packet);
+
+    final physicalIndicatorActive = packet.leftPhysical || packet.rightPhysical;
+
     _state = _state.copyWith(
       currentRpm: packet.rpm,
       currentSpeedKmph: speedKmph,
@@ -165,8 +175,15 @@ class RideSessionController extends ChangeNotifier {
       distanceKm: nextDistanceKm,
       maxSpeedKmph: nextMaxSpeed,
       averageSpeedKmph: nextAverageSpeed,
+
       leftPhysicalIndicator: packet.leftPhysical,
       rightPhysicalIndicator: packet.rightPhysical,
+
+      leftOutputActive: resolvedLeftOutput,
+      rightOutputActive: resolvedRightOutput,
+
+      appLeftIndicator: physicalIndicatorActive ? false : packet.appLeft,
+      appRightIndicator: physicalIndicatorActive ? false : packet.appRight,
     );
 
     if (espDistanceWasLower) {
@@ -177,10 +194,43 @@ class RideSessionController extends ChangeNotifier {
     notifyListeners();
   }
 
+  bool _resolveLeftOutputFromPacket(BikeSensorPacket packet) {
+    if (packet.leftPhysical) return true;
+    if (packet.rightPhysical) return false;
+
+    return packet.leftOutput;
+  }
+
+  bool _resolveRightOutputFromPacket(BikeSensorPacket packet) {
+    if (packet.leftPhysical) return false;
+    if (packet.rightPhysical) return true;
+
+    return packet.rightOutput;
+  }
+
   void toggleHazard() {
     final nextHazardState = !_state.hazardEnabled;
+    final hasPhysicalOverride =
+        _state.leftPhysicalIndicator || _state.rightPhysicalIndicator;
 
-    _state = _state.copyWith(hazardEnabled: nextHazardState);
+    final hasAppLeft = _state.appLeftIndicator;
+    final hasAppRight = _state.appRightIndicator;
+
+    _state = _state.copyWith(
+      hazardEnabled: nextHazardState,
+
+      // Do not visually override a physical switch.
+      leftOutputActive: hasPhysicalOverride
+          ? _state.leftOutputActive
+          : isConsoleConnected
+          ? hasAppLeft || (!hasAppRight && nextHazardState)
+          : false,
+      rightOutputActive: hasPhysicalOverride
+          ? _state.rightOutputActive
+          : isConsoleConnected
+          ? hasAppRight || (!hasAppLeft && nextHazardState)
+          : false,
+    );
 
     onCommand?.call(BikeCommand.hazard(nextHazardState));
     _persistSnapshotFireAndForget(force: true);
@@ -188,11 +238,27 @@ class RideSessionController extends ChangeNotifier {
   }
 
   void toggleAppLeftIndicator() {
+    final hasPhysicalOverride =
+        _state.leftPhysicalIndicator || _state.rightPhysicalIndicator;
+
     final nextLeftState = !_state.appLeftIndicator;
+    final nextRightState = nextLeftState ? false : _state.appRightIndicator;
 
     _state = _state.copyWith(
       appLeftIndicator: nextLeftState,
-      appRightIndicator: nextLeftState ? false : _state.appRightIndicator,
+      appRightIndicator: nextRightState,
+
+      // Optimistic UI only when no physical switch is active.
+      leftOutputActive: hasPhysicalOverride
+          ? _state.leftOutputActive
+          : isConsoleConnected
+          ? nextLeftState || (!nextRightState && _state.hazardEnabled)
+          : false,
+      rightOutputActive: hasPhysicalOverride
+          ? _state.rightOutputActive
+          : isConsoleConnected
+          ? nextRightState || (!nextLeftState && _state.hazardEnabled)
+          : false,
     );
 
     onCommand?.call(
@@ -207,11 +273,27 @@ class RideSessionController extends ChangeNotifier {
   }
 
   void toggleAppRightIndicator() {
+    final hasPhysicalOverride =
+        _state.leftPhysicalIndicator || _state.rightPhysicalIndicator;
+
     final nextRightState = !_state.appRightIndicator;
+    final nextLeftState = nextRightState ? false : _state.appLeftIndicator;
 
     _state = _state.copyWith(
       appRightIndicator: nextRightState,
-      appLeftIndicator: nextRightState ? false : _state.appLeftIndicator,
+      appLeftIndicator: nextLeftState,
+
+      // Optimistic UI only when no physical switch is active.
+      leftOutputActive: hasPhysicalOverride
+          ? _state.leftOutputActive
+          : isConsoleConnected
+          ? nextLeftState || (!nextRightState && _state.hazardEnabled)
+          : false,
+      rightOutputActive: hasPhysicalOverride
+          ? _state.rightOutputActive
+          : isConsoleConnected
+          ? nextRightState || (!nextLeftState && _state.hazardEnabled)
+          : false,
     );
 
     onCommand?.call(
@@ -242,6 +324,8 @@ class RideSessionController extends ChangeNotifier {
       averageSpeedKmph: 0,
       maxSpeedKmph: 0,
       speedSource: SpeedSource.wheel,
+      leftOutputActive: false,
+      rightOutputActive: false,
     );
 
     _persistSnapshotFireAndForget(force: true);
@@ -367,7 +451,13 @@ class RideSessionController extends ChangeNotifier {
       );
     }
 
-    _state = RideSessionState.initial();
+    final hazardShouldRemainOn = completedState.hazardEnabled;
+
+    _state = RideSessionState.initial().copyWith(
+      hazardEnabled: hazardShouldRemainOn,
+      leftOutputActive: isConsoleConnected && hazardShouldRemainOn,
+      rightOutputActive: isConsoleConnected && hazardShouldRemainOn,
+    );
 
     _notMovingSinceEpochMs = null;
     _lastSnapshotSaveEpochMs = null;

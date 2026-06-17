@@ -101,6 +101,8 @@ class RideSessionState {
     required this.appRightIndicator,
     required this.leftPhysicalIndicator,
     required this.rightPhysicalIndicator,
+    required this.leftOutputActive,
+    required this.rightOutputActive,
   });
 
   final RideState rideState;
@@ -152,6 +154,10 @@ class RideSessionState {
   final bool leftPhysicalIndicator;
   final bool rightPhysicalIndicator;
 
+  /// Actual effective indicator outputs received from ESP32.
+  final bool leftOutputActive;
+  final bool rightOutputActive;
+
   factory RideSessionState.initial() {
     return const RideSessionState(
       rideState: RideState.stopped,
@@ -170,6 +176,8 @@ class RideSessionState {
       appRightIndicator: false,
       leftPhysicalIndicator: false,
       rightPhysicalIndicator: false,
+      leftOutputActive: false,
+      rightOutputActive: false,
     );
   }
 
@@ -185,27 +193,17 @@ class RideSessionState {
   bool get appIndicatorOverrideActive => appLeftIndicator || appRightIndicator;
 
   bool get leftArrowActive {
-    if (physicalIndicatorOverrideActive) {
-      return leftPhysicalIndicator;
-    }
+    if (leftPhysicalIndicator) return true;
+    if (rightPhysicalIndicator) return false;
 
-    if (appIndicatorOverrideActive) {
-      return appLeftIndicator;
-    }
-
-    return hazardEnabled;
+    return leftOutputActive;
   }
 
   bool get rightArrowActive {
-    if (physicalIndicatorOverrideActive) {
-      return rightPhysicalIndicator;
-    }
+    if (leftPhysicalIndicator) return false;
+    if (rightPhysicalIndicator) return true;
 
-    if (appIndicatorOverrideActive) {
-      return appRightIndicator;
-    }
-
-    return hazardEnabled;
+    return rightOutputActive;
   }
 
   RideSessionState copyWith({
@@ -227,6 +225,8 @@ class RideSessionState {
     bool? appRightIndicator,
     bool? leftPhysicalIndicator,
     bool? rightPhysicalIndicator,
+    bool? leftOutputActive,
+    bool? rightOutputActive,
   }) {
     return RideSessionState(
       rideState: rideState ?? this.rideState,
@@ -251,6 +251,8 @@ class RideSessionState {
           leftPhysicalIndicator ?? this.leftPhysicalIndicator,
       rightPhysicalIndicator:
           rightPhysicalIndicator ?? this.rightPhysicalIndicator,
+      leftOutputActive: leftOutputActive ?? this.leftOutputActive,
+      rightOutputActive: rightOutputActive ?? this.rightOutputActive,
     );
   }
 }
@@ -262,7 +264,11 @@ class BikeSensorPacket {
     required this.isMoving,
     required this.leftPhysical,
     required this.rightPhysical,
+    required this.leftOutput,
+    required this.rightOutput,
     required this.hazardOutput,
+    required this.appLeft,
+    required this.appRight,
     required this.consoleRideActive,
   });
 
@@ -282,9 +288,18 @@ class BikeSensorPacket {
   /// Physical right indicator switch state.
   final bool rightPhysical;
 
-  /// Actual hazard output state on ESP32 side.
-  /// This may differ visually from app hazard state during physical override.
+  /// Actual effective left indicator output driven by ESP32.
+  final bool leftOutput;
+
+  /// Actual effective right indicator output driven by ESP32.
+  final bool rightOutput;
+
+  /// Logical hazard state on ESP32 side.
   final bool hazardOutput;
+
+  /// App-side indicator state currently stored on ESP32.
+  final bool appLeft;
+  final bool appRight;
 
   /// Whether ESP32 currently believes ride distance counting is active.
   final bool consoleRideActive;
@@ -296,20 +311,28 @@ class BikeSensorPacket {
       isMoving: false,
       leftPhysical: false,
       rightPhysical: false,
+      leftOutput: false,
+      rightOutput: false,
       hazardOutput: false,
+      appLeft: false,
+      appRight: false,
       consoleRideActive: false,
     );
   }
 
   factory BikeSensorPacket.fromJson(Map<String, dynamic> json) {
     return BikeSensorPacket(
-      rpm: _readDouble(json['rpm']),
-      distanceKm: _readDouble(json['distance']),
-      isMoving: json['moving'] == true,
-      leftPhysical: json['leftPhysical'] == true,
-      rightPhysical: json['rightPhysical'] == true,
-      hazardOutput: json['hazardOutput'] == true,
-      consoleRideActive: json['consoleActive'] == true,
+      rpm: _readDouble(json['rpm'] ?? json['r']),
+      distanceKm: _readDouble(json['distance'] ?? json['d']),
+      isMoving: _readBool(json['moving'] ?? json['m']),
+      leftPhysical: _readBool(json['leftPhysical'] ?? json['lp']),
+      rightPhysical: _readBool(json['rightPhysical'] ?? json['rp']),
+      leftOutput: _readBool(json['leftOutput'] ?? json['lo']),
+      rightOutput: _readBool(json['rightOutput'] ?? json['ro']),
+      hazardOutput: _readBool(json['hazardOutput'] ?? json['hz']),
+      appLeft: _readBool(json['appLeft'] ?? json['al']),
+      appRight: _readBool(json['appRight'] ?? json['ar']),
+      consoleRideActive: _readBool(json['consoleActive'] ?? json['ca']),
     );
   }
 
@@ -320,7 +343,11 @@ class BikeSensorPacket {
       'moving': isMoving,
       'leftPhysical': leftPhysical,
       'rightPhysical': rightPhysical,
+      'leftOutput': leftOutput,
+      'rightOutput': rightOutput,
       'hazardOutput': hazardOutput,
+      'appLeft': appLeft,
+      'appRight': appRight,
       'consoleActive': consoleRideActive,
     };
   }
@@ -329,6 +356,22 @@ class BikeSensorPacket {
     if (value is num) return value.toDouble();
     if (value is String) return double.tryParse(value) ?? 0;
     return 0;
+  }
+
+  static bool _readBool(dynamic value) {
+    if (value is bool) return value;
+
+    if (value is num) {
+      return value != 0;
+    }
+
+    if (value is String) {
+      final normalized = value.trim().toLowerCase();
+
+      return normalized == 'true' || normalized == '1';
+    }
+
+    return false;
   }
 }
 

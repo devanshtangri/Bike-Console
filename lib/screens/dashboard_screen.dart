@@ -705,6 +705,14 @@ class _DashboardScreenState extends State<DashboardScreen>
                               .bikeConsoleController
                               .rideSessionController
                               .toggleHazard,
+                          onLeftArrowTap: widget
+                              .bikeConsoleController
+                              .rideSessionController
+                              .toggleAppLeftIndicator,
+                          onRightArrowTap: widget
+                              .bikeConsoleController
+                              .rideSessionController
+                              .toggleAppRightIndicator,
                           onLeftArrowLongPress: () {
                             _toggleDebugPhysicalIndicator(leftSide: true);
                           },
