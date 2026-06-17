@@ -71,6 +71,63 @@ class _SessionsScreenState extends State<SessionsScreen> {
     });
   }
 
+  Future<void> _confirmDeleteSelected() async {
+    if (!_hasSelection) return;
+
+    final selectedCount = _selectedSessionIds.length;
+
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF121212),
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+            side: BorderSide(color: Colors.white.withValues(alpha: 0.10)),
+          ),
+          title: Text(
+            selectedCount == 1
+                ? "Delete this session?"
+                : "Delete $selectedCount sessions?",
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          content: const Text(
+            "This cannot be undone.",
+            style: TextStyle(color: Colors.white54, height: 1.35),
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text(
+                "Cancel",
+                style: TextStyle(color: Colors.white70),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text(
+                "Delete",
+                style: TextStyle(
+                  color: Colors.redAccent,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted || shouldDelete != true) return;
+
+    await _deleteSelected();
+  }
+
   Future<void> _deleteSelected() async {
     if (!_hasSelection) return;
 
@@ -100,6 +157,16 @@ class _SessionsScreenState extends State<SessionsScreen> {
         behavior: SnackBarBehavior.floating,
         duration: const Duration(milliseconds: 1200),
       ),
+    );
+  }
+
+  void _showSessionDetails(SavedRideSession session) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.65),
+      isScrollControlled: true,
+      builder: (_) => _SessionDetailsSheet(session: session),
     );
   }
 
@@ -140,6 +207,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
   Widget build(BuildContext context) {
     final selectedCount = _selectedSessionIds.length;
     final summary = _buildSummary();
+    final showSessionControls = !_loading && _hasSessions;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -156,11 +224,11 @@ class _SessionsScreenState extends State<SessionsScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: _hasSessions ? _toggleSelectionMode : null,
+            onPressed: showSessionControls ? _toggleSelectionMode : null,
             child: Text(
               _selectionModeEnabled ? "Cancel" : "Select",
               style: TextStyle(
-                color: _hasSessions ? Colors.greenAccent : Colors.white24,
+                color: showSessionControls ? Colors.greenAccent : Colors.white24,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -170,20 +238,22 @@ class _SessionsScreenState extends State<SessionsScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            _SessionToolbar(
-              hasSessions: _hasSessions,
-              hasSelection: _hasSelection,
-              onSelectAll: _selectAll,
-              onDeleteSelected: _deleteSelected,
-            ),
-            _SessionSummaryPanel(
-              totalDistanceKm: summary.totalDistanceKm,
-              averageDistanceKm: summary.averageDistanceKm,
-              averageDurationText: _formatCompactDuration(
-                summary.averageDurationMs,
+            if (showSessionControls) ...[
+              _SessionToolbar(
+                hasSessions: _hasSessions,
+                hasSelection: _hasSelection,
+                onSelectAll: _selectAll,
+                onDeleteSelected: _confirmDeleteSelected,
               ),
-              averageAverageSpeedKmph: summary.averageAverageSpeedKmph,
-            ),
+              _SessionSummaryPanel(
+                totalDistanceKm: summary.totalDistanceKm,
+                averageDistanceKm: summary.averageDistanceKm,
+                averageDurationText: _formatCompactDuration(
+                  summary.averageDurationMs,
+                ),
+                averageAverageSpeedKmph: summary.averageAverageSpeedKmph,
+              ),
+            ],
             Expanded(
               child: _loading
                   ? const _LoadingSessionsState()
@@ -209,7 +279,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
                             selected: selected,
                             onTap: () {
                               if (!_selectionModeEnabled) {
-                                // Detail screen comes later.
+                                _showSessionDetails(session);
                                 return;
                               }
 
@@ -536,7 +606,7 @@ class _EmptySessionsState extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             const Text(
-              "Completed rides will appear here with distance, duration, speed stats, and route details once route history is added.",
+              "Completed rides will appear here with distance, duration, and speed stats.",
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Colors.white38,
@@ -573,7 +643,7 @@ class _SessionCard extends StatelessWidget {
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: selectionModeEnabled ? onTap : null,
+      onTap: onTap,
       onLongPress: onLongPress,
       child: Container(
         constraints: const BoxConstraints(minHeight: 118),
@@ -611,6 +681,12 @@ class _SessionCard extends StatelessWidget {
                         ? Icons.check_circle_rounded
                         : Icons.radio_button_unchecked_rounded,
                     color: selected ? Colors.greenAccent : Colors.white24,
+                    size: 24,
+                  )
+                else
+                  const Icon(
+                    Icons.expand_more_rounded,
+                    color: Colors.white24,
                     size: 24,
                   ),
               ],
@@ -736,6 +812,190 @@ class _SessionCardMetric extends StatelessWidget {
                 fontSize: 8.8,
                 fontWeight: FontWeight.w600,
                 letterSpacing: 0.25,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SessionDetailsSheet extends StatelessWidget {
+  const _SessionDetailsSheet({required this.session});
+
+  final SavedRideSession session;
+
+  @override
+  Widget build(BuildContext context) {
+    final dateText = _formatSessionDate(session.endEpochMs);
+    final durationText = _formatCompactDuration(session.activeDurationMs);
+
+    return SafeArea(
+      top: false,
+      child: Container(
+        margin: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
+        decoration: BoxDecoration(
+          color: const Color(0xFF121212),
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.10),
+            width: 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.45),
+              blurRadius: 28,
+              offset: const Offset(0, 14),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 42,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.20),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+            ),
+            Row(
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: Colors.greenAccent.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(17),
+                    border: Border.all(
+                      color: Colors.greenAccent.withValues(alpha: 0.20),
+                      width: 1,
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.route_rounded,
+                    color: Colors.greenAccent,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "${session.distanceKm.toStringAsFixed(2)} km ride",
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 21,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        dateText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white38,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            _DetailInfoRow(
+              icon: Icons.route_outlined,
+              label: "Distance",
+              value: "${session.distanceKm.toStringAsFixed(2)} km",
+            ),
+            _DetailInfoRow(
+              icon: Icons.timer_outlined,
+              label: "Active Duration",
+              value: durationText,
+            ),
+            _DetailInfoRow(
+              icon: Icons.speed_outlined,
+              label: "Average Speed",
+              value: "${session.averageSpeedKmph.toStringAsFixed(1)} km/h",
+            ),
+            _DetailInfoRow(
+              icon: Icons.trending_up_rounded,
+              label: "Max Speed",
+              value: "${session.maxSpeedKmph.toStringAsFixed(1)} km/h",
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DetailInfoRow extends StatelessWidget {
+  const _DetailInfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.28),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.07),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            color: Colors.greenAccent.withValues(alpha: 0.78),
+            size: 19,
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white54,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13.5,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),
