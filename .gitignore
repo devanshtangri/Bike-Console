@@ -44,11 +44,3 @@ app.*.map.json
 /android/app/profile
 /android/
 .android/
-
-#looks like the rssi on pair mode is not updating
-# I think both the status and saved device should disappear if no device paired
-# i wanna test if indicators work if the workout has not been started yet
-# if hazardous is on, nad one side indicator is turned on mechanically, the lights for sure point in that direction and come back a
-# If the esp32 goes offline while the HZ is on, its good that on the app it shows as off and it restores to the blinking once it comes back, however, i only want the turn indicators to turn off while the HZ symbol stays on so that the user knows that HZ is enabled even though esp32 is offline
-# regarding the point above, esp32 does NOT sync back with those values meaning if HZ was enabled before esp32 powereing off, it does not make HZ happen when the esp32 connects back even though on the app everything start working, the indicators blink and the hz symbols comes on
-# Also i wanted the ability to turn on the indicators individually from the app itself

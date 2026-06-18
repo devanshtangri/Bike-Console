@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -7,16 +8,40 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../theme/app_colors.dart';
 
 class MapTrackingController extends ChangeNotifier {
+  static const double navigationMapTilt = 45.0;
+  static const double navigationMapZoom = 17.45;
+  static const double navigationBearingSmoothing = 1.0;
+  static const double _followCameraDistanceThresholdMeters = 1.5;
+  static const double _followCameraBearingThresholdDegrees = 1.0;
+  // Follow camera easing runs close to display refresh. The previous 80 ms
+  // timer looked stepped/jittery even though the GPS data itself was fine.
+  static const Duration _followCameraTickInterval = Duration(milliseconds: 16);
+  static const double _followCameraTargetLerp = 0.14;
+  static const double _followCameraSettleDistanceMeters = 0.12;
+  static const double _followCameraSnapDistanceMeters = 180.0;
+
   GoogleMapController? _mapController;
   StreamSubscription<Position>? _positionSubscription;
 
   LatLng? _currentLatLng;
+  LatLng? _previousLatLngForBearing;
   double _currentHeading = 0;
+  bool _hasReliableHeading = false;
   bool _hasCenteredOnStartup = false;
 
   bool _followUser = true;
   bool _isProgrammaticCameraMove = false;
+  bool _followCameraTickInFlight = false;
+  int _ignoreCameraMoveStartedUntilMs = 0;
+
   LatLng? _lastFollowCameraTarget;
+  double? _lastFollowCameraBearing;
+  LatLng? _desiredFollowCameraTarget;
+  LatLng? _visualFollowCameraTarget;
+  double? _desiredFollowCameraBearing;
+  double? _visualFollowCameraBearing;
+
+  Timer? _followCameraTimer;
 
   BitmapDescriptor? _currentLocationIcon;
   final List<LatLng> _routePoints = [];
@@ -45,6 +70,7 @@ class MapTrackingController extends ChangeNotifier {
     };
   }
 
+
   Set<Polyline> get polylines {
     if (_routePoints.length < 2) {
       return {};
@@ -72,15 +98,24 @@ class MapTrackingController extends ChangeNotifier {
     if (_currentLatLng != null && !_hasCenteredOnStartup) {
       _hasCenteredOnStartup = true;
       _followUser = true;
-      await _animateMapTo(_currentLatLng!);
+      await _moveNavigationCameraTo(_currentLatLng!, animated: true);
     }
   }
 
   void onUserMovedMap() {
-    if (!_isProgrammaticCameraMove) {
-      _followUser = false;
-      notifyListeners();
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+    if (_isProgrammaticCameraMove || nowMs < _ignoreCameraMoveStartedUntilMs) {
+      return;
     }
+
+    if (!_followUser) {
+      return;
+    }
+
+    _followUser = false;
+    _stopFollowCameraTimer();
+    notifyListeners();
   }
 
   Future<void> recenter() async {
@@ -127,25 +162,51 @@ class MapTrackingController extends ChangeNotifier {
 
     final target = LatLng(position.latitude, position.longitude);
 
+    _updateHeadingFromPosition(position, target);
+
+    _currentLatLng = target;
     _followUser = true;
-    await _animateMapTo(target);
+    await _moveNavigationCameraTo(target, animated: true);
     notifyListeners();
   }
 
-  Future<void> _animateMapTo(LatLng target, {double zoom = 16}) async {
+  Future<void> _moveNavigationCameraTo(
+    LatLng target, {
+    required bool animated,
+  }) async {
     if (_mapController == null) return;
+
+    _stopFollowCameraTimer();
 
     _isProgrammaticCameraMove = true;
     _lastFollowCameraTarget = target;
+    _lastFollowCameraBearing = _currentHeading;
+    _desiredFollowCameraTarget = target;
+    _desiredFollowCameraBearing = _currentHeading;
+    _visualFollowCameraTarget = target;
+    _visualFollowCameraBearing = _currentHeading;
+
+    final cameraUpdate = CameraUpdate.newCameraPosition(
+      CameraPosition(
+        target: target,
+        zoom: navigationMapZoom,
+        bearing: _currentHeading,
+        tilt: navigationMapTilt,
+      ),
+    );
+
+    _ignoreProgrammaticCameraMoveStartedFor(
+      Duration(milliseconds: animated ? 900 : 260),
+    );
 
     try {
-      await _mapController!.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(target: target, zoom: zoom, bearing: 0, tilt: 0),
-        ),
-      );
+      if (animated) {
+        await _mapController!.animateCamera(cameraUpdate);
+      } else {
+        await _mapController!.moveCamera(cameraUpdate);
+      }
     } finally {
-      Future.delayed(const Duration(milliseconds: 350), () {
+      Future.delayed(Duration(milliseconds: animated ? 350 : 120), () {
         if (!_disposed) {
           _isProgrammaticCameraMove = false;
         }
@@ -159,7 +220,7 @@ class MapTrackingController extends ChangeNotifier {
     }
 
     if (_lastFollowCameraTarget == null) {
-      await _animateMapTo(nextPoint);
+      _queueFollowCameraTarget(nextPoint);
       return;
     }
 
@@ -170,9 +231,143 @@ class MapTrackingController extends ChangeNotifier {
       nextPoint.longitude,
     );
 
-    if (distance >= 18) {
-      await _animateMapTo(nextPoint);
+    final bearingChange = _lastFollowCameraBearing == null
+        ? 360.0
+        : _bearingDifference(_lastFollowCameraBearing!, _currentHeading).abs();
+
+    if (distance >= _followCameraDistanceThresholdMeters ||
+        bearingChange >= _followCameraBearingThresholdDegrees) {
+      _queueFollowCameraTarget(nextPoint);
     }
+  }
+
+  void _queueFollowCameraTarget(LatLng target) {
+    _desiredFollowCameraTarget = target;
+    _desiredFollowCameraBearing = _currentHeading;
+
+    _lastFollowCameraTarget = target;
+    _lastFollowCameraBearing = _currentHeading;
+
+    _visualFollowCameraTarget ??= target;
+    _visualFollowCameraBearing ??= _currentHeading;
+
+    _startFollowCameraTimer();
+  }
+
+  void _startFollowCameraTimer() {
+    if (_followCameraTimer != null || _disposed) return;
+
+    _followCameraTimer = Timer.periodic(_followCameraTickInterval, (_) {
+      _tickFollowCamera();
+    });
+  }
+
+  void _stopFollowCameraTimer() {
+    _followCameraTimer?.cancel();
+    _followCameraTimer = null;
+  }
+
+  void _ignoreProgrammaticCameraMoveStartedFor(Duration duration) {
+    final nextIgnoreUntil =
+        DateTime.now().millisecondsSinceEpoch + duration.inMilliseconds;
+
+    if (nextIgnoreUntil > _ignoreCameraMoveStartedUntilMs) {
+      _ignoreCameraMoveStartedUntilMs = nextIgnoreUntil;
+    }
+  }
+
+  Future<void> _tickFollowCamera() async {
+    if (_followCameraTickInFlight || !_followUser || _mapController == null) {
+      return;
+    }
+
+    final desiredTarget = _desiredFollowCameraTarget;
+    final desiredBearing = _desiredFollowCameraBearing;
+
+    if (desiredTarget == null || desiredBearing == null) {
+      _stopFollowCameraTimer();
+      return;
+    }
+
+    _followCameraTickInFlight = true;
+    _isProgrammaticCameraMove = true;
+
+    try {
+      final currentTarget = _visualFollowCameraTarget ?? desiredTarget;
+
+      final distanceToDesired = Geolocator.distanceBetween(
+        currentTarget.latitude,
+        currentTarget.longitude,
+        desiredTarget.latitude,
+        desiredTarget.longitude,
+      );
+
+      final nextTarget =
+          distanceToDesired <= _followCameraSettleDistanceMeters ||
+              distanceToDesired >= _followCameraSnapDistanceMeters
+          ? desiredTarget
+          : _lerpLatLng(
+              currentTarget,
+              desiredTarget,
+              _followCameraTargetLerp,
+            );
+
+      // Keep the movement direction accurate while only smoothing the camera
+      // position. This prevents the navigation view from pointing late.
+      final nextBearing = desiredBearing;
+
+      _visualFollowCameraTarget = nextTarget;
+      _visualFollowCameraBearing = nextBearing;
+
+      _ignoreProgrammaticCameraMoveStartedFor(
+        const Duration(milliseconds: 90),
+      );
+
+      await _mapController!.moveCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: nextTarget,
+            zoom: navigationMapZoom,
+            bearing: nextBearing,
+            tilt: navigationMapTilt,
+          ),
+        ),
+      );
+
+      final remainingDistance = Geolocator.distanceBetween(
+        nextTarget.latitude,
+        nextTarget.longitude,
+        desiredTarget.latitude,
+        desiredTarget.longitude,
+      );
+
+      final remainingBearing = _bearingDifference(
+        nextBearing,
+        desiredBearing,
+      ).abs();
+
+      if (remainingDistance <= _followCameraSettleDistanceMeters &&
+          remainingBearing <= 0.5) {
+        _visualFollowCameraTarget = desiredTarget;
+        _visualFollowCameraBearing = desiredBearing;
+        _stopFollowCameraTimer();
+      }
+    } finally {
+      _followCameraTickInFlight = false;
+
+      Future.delayed(const Duration(milliseconds: 40), () {
+        if (!_disposed) {
+          _isProgrammaticCameraMove = false;
+        }
+      });
+    }
+  }
+
+  LatLng _lerpLatLng(LatLng from, LatLng to, double t) {
+    return LatLng(
+      from.latitude + ((to.latitude - from.latitude) * t),
+      from.longitude + ((to.longitude - from.longitude) * t),
+    );
   }
 
   Future<void> _startLocationTracking() async {
@@ -193,11 +388,8 @@ class MapTrackingController extends ChangeNotifier {
         ).listen((position) async {
           final nextPoint = LatLng(position.latitude, position.longitude);
 
+          _updateHeadingFromPosition(position, nextPoint);
           _currentLatLng = nextPoint;
-
-          if (position.heading >= 0) {
-            _currentHeading = position.heading;
-          }
 
           if (_routePoints.isEmpty || _routePoints.last != nextPoint) {
             _routePoints.add(nextPoint);
@@ -208,7 +400,7 @@ class MapTrackingController extends ChangeNotifier {
           if (!_hasCenteredOnStartup && _mapController != null) {
             _hasCenteredOnStartup = true;
             _followUser = true;
-            await _animateMapTo(nextPoint);
+            await _moveNavigationCameraTo(nextPoint, animated: true);
             return;
           }
 
@@ -216,9 +408,77 @@ class MapTrackingController extends ChangeNotifier {
         });
   }
 
+  void _updateHeadingFromPosition(Position position, LatLng nextPoint) {
+    double? nextHeading;
+
+    if (position.heading >= 0) {
+      nextHeading = position.heading;
+    } else if (_previousLatLngForBearing != null) {
+      final movementDistance = Geolocator.distanceBetween(
+        _previousLatLngForBearing!.latitude,
+        _previousLatLngForBearing!.longitude,
+        nextPoint.latitude,
+        nextPoint.longitude,
+      );
+
+      if (movementDistance >= 0.6) {
+        nextHeading = _bearingBetween(_previousLatLngForBearing!, nextPoint);
+      }
+    }
+
+    if (nextHeading != null) {
+      final normalizedHeading = _normalizeBearing(nextHeading);
+
+      _currentHeading = _hasReliableHeading && navigationBearingSmoothing < 1.0
+          ? _smoothBearing(_currentHeading, normalizedHeading)
+          : normalizedHeading;
+
+      _hasReliableHeading = true;
+    }
+
+    _previousLatLngForBearing = nextPoint;
+  }
+
+  double _smoothBearing(double current, double target) {
+    final delta = _bearingDifference(current, target);
+    return _normalizeBearing(current + (delta * navigationBearingSmoothing));
+  }
+
+  double _bearingDifference(double from, double to) {
+    return ((to - from + 540) % 360) - 180;
+  }
+
+  double _normalizeBearing(double bearing) {
+    return (bearing % 360 + 360) % 360;
+  }
+
+  double _bearingBetween(LatLng from, LatLng to) {
+    final fromLat = _degreesToRadians(from.latitude);
+    final fromLng = _degreesToRadians(from.longitude);
+    final toLat = _degreesToRadians(to.latitude);
+    final toLng = _degreesToRadians(to.longitude);
+
+    final deltaLng = toLng - fromLng;
+
+    final y = math.sin(deltaLng) * math.cos(toLat);
+    final x =
+        math.cos(fromLat) * math.sin(toLat) -
+        math.sin(fromLat) * math.cos(toLat) * math.cos(deltaLng);
+
+    return _normalizeBearing(_radiansToDegrees(math.atan2(y, x)));
+  }
+
+  double _degreesToRadians(double degrees) {
+    return degrees * math.pi / 180.0;
+  }
+
+  double _radiansToDegrees(double radians) {
+    return radians * 180.0 / math.pi;
+  }
+
   Future<BitmapDescriptor> _createCurrentLocationIcon() async {
-    const logicalWidth = 24.0;
-    const logicalHeight = 36.0;
+    const logicalWidth = 30.0;
+    const logicalHeight = 45.0;
     const pixelRatio = 4.0;
 
     final imageWidth = (logicalWidth * pixelRatio).toInt();
@@ -261,6 +521,7 @@ class MapTrackingController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _positionSubscription?.cancel();
+    _stopFollowCameraTimer();
     _mapController?.dispose();
     super.dispose();
   }

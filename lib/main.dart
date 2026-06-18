@@ -33,6 +33,10 @@ class BikeConsoleApp extends StatelessWidget {
     return MaterialApp(
       title: 'Bike Console',
       debugShowCheckedModeBanner: false,
+      locale: const Locale('en', 'US'),
+      supportedLocales: const [
+        Locale('en', 'US'),
+      ],
       theme: ThemeData(
         fontFamily: GoogleFonts.inter().fontFamily,
         scaffoldBackgroundColor: Colors.black,

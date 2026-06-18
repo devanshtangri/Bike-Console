@@ -456,7 +456,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                           child: GoogleMap(
                             initialCameraPosition: const CameraPosition(
                               target: LatLng(28.6139, 77.2090),
-                              zoom: 15,
+                              zoom: MapTrackingController.navigationMapZoom,
+                              tilt: MapTrackingController.navigationMapTilt,
                             ),
                             onMapCreated: (controller) {
                               _mapTrackingController.attachMapController(
@@ -471,8 +472,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                             myLocationButtonEnabled: false,
                             zoomControlsEnabled: false,
                             compassEnabled: false,
-                            rotateGesturesEnabled: false,
-                            tiltGesturesEnabled: false,
+                            rotateGesturesEnabled: true,
+                            tiltGesturesEnabled: true,
                             padding: const EdgeInsets.only(bottom: 115),
                             markers: _mapTrackingController.markers,
                             polylines: _mapTrackingController.polylines,
