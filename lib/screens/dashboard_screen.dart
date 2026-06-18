@@ -110,7 +110,9 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   void _handleRoutePoint(RideRoutePoint point) {
-    widget.bikeConsoleController.rideSessionController.handleRoutePoint(point);
+    final rideController = widget.bikeConsoleController.rideSessionController;
+    rideController.handleRoutePoint(point);
+    rideController.handleGpsFallbackPoint(point);
   }
 
   Future<void> _startRideWithCountdown() async {

@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 
 import '../models/ride_models.dart';
@@ -24,6 +26,12 @@ class RideSessionController extends ChangeNotifier {
   static const int _consoleSyncThrottleMs = 1500;
   static const int _minimumSavedRideDurationMs = 60000;
   static const int _indicatorCommandSettleMs = 450;
+  static const double _gpsFallbackMinMovingSpeedMps = 0.6;
+  static const double _gpsFallbackMinDistanceMeters = 0.8;
+  static const double _gpsFallbackMaxReasonableSpeedKmph = 85.0;
+  static const int _gpsFallbackStaleMs = 2500;
+  static const int _gpsFallbackDisplayGraceMs = 3500;
+
 
   RideSessionState _state = RideSessionState.initial();
   RideSettings _settings = RideSettings.defaults();
@@ -34,6 +42,10 @@ class RideSessionController extends ChangeNotifier {
   int? _lastAverageSpeedUpdateEpochMs;
   int? _lastConsoleSyncEpochMs;
   int? _lastIndicatorCommandEpochMs;
+  RideRoutePoint? _lastGpsFallbackDistancePoint;
+  int? _lastGpsFallbackPointEpochMs;
+  int? _lastGpsFallbackMotionEpochMs;
+  double _lastGpsFallbackDisplaySpeedKmph = 0.0;
 
   Timer? _durationTicker;
 
@@ -163,6 +175,12 @@ class RideSessionController extends ChangeNotifier {
     _notMovingSinceEpochMs = null;
     _lastAverageSpeedUpdateEpochMs = null;
     _lastConsoleSyncEpochMs = null;
+    _lastGpsFallbackDistancePoint = _state.routePoints.isNotEmpty
+        ? _state.routePoints.last
+        : null;
+    _lastGpsFallbackPointEpochMs = _lastGpsFallbackDistancePoint?.timestampMs;
+    _lastGpsFallbackMotionEpochMs = _lastGpsFallbackPointEpochMs;
+    _lastGpsFallbackDisplaySpeedKmph = 0.0;
 
     if (_state.rideState == RideState.running) {
       _startDurationTicker();
@@ -209,6 +227,12 @@ class RideSessionController extends ChangeNotifier {
     _notMovingSinceEpochMs = null;
     _lastAverageSpeedUpdateEpochMs = null;
     _lastConsoleSyncEpochMs = null;
+    _lastGpsFallbackDistancePoint = nextRoutePoints.isNotEmpty
+        ? nextRoutePoints.last
+        : null;
+    _lastGpsFallbackPointEpochMs = _lastGpsFallbackDistancePoint?.timestampMs;
+    _lastGpsFallbackMotionEpochMs = _lastGpsFallbackPointEpochMs;
+    _lastGpsFallbackDisplaySpeedKmph = 0.0;
 
     if (_state.rideState == RideState.running) {
       _startDurationTicker();
@@ -243,6 +267,146 @@ class RideSessionController extends ChangeNotifier {
 
     _state = _state.copyWith(
       routePoints: [...currentPoints, normalizedPoint],
+    );
+
+    _persistSnapshotFireAndForget();
+    notifyListeners();
+  }
+
+  void handleGpsFallbackPoint(RideRoutePoint point) {
+    if (!_state.isRouteRecordingActive || !point.isValid) {
+      return;
+    }
+
+    final nowEpochMs = point.timestampMs > 0
+        ? point.timestampMs
+        : DateTime.now().millisecondsSinceEpoch;
+
+    if (isConsoleConnected) {
+      _lastGpsFallbackDistancePoint = point;
+      _lastGpsFallbackPointEpochMs = nowEpochMs;
+      return;
+    }
+
+    final lastPoint = _lastGpsFallbackDistancePoint;
+    _lastGpsFallbackDistancePoint = point;
+    _lastGpsFallbackPointEpochMs = nowEpochMs;
+
+    var deltaMeters = 0.0;
+    var impliedSpeedKmph = 0.0;
+
+    if (lastPoint != null && lastPoint.isValid) {
+      final elapsedMs = point.timestampMs - lastPoint.timestampMs;
+
+      if (elapsedMs > 0) {
+        final rawDeltaMeters = _distanceBetweenRoutePointsMeters(
+          lastPoint,
+          point,
+        );
+        impliedSpeedKmph = rawDeltaMeters / (elapsedMs / 1000.0) * 3.6;
+
+        if (rawDeltaMeters >= _gpsFallbackMinDistanceMeters &&
+            impliedSpeedKmph <= _gpsFallbackMaxReasonableSpeedKmph) {
+          deltaMeters = rawDeltaMeters;
+        }
+      }
+    }
+
+    final gpsSpeedMps = point.gpsSpeedMps.isFinite && point.gpsSpeedMps > 0
+        ? point.gpsSpeedMps
+        : 0.0;
+
+    final rawFallbackSpeedKmph = gpsSpeedMps > 0
+        ? gpsSpeedMps * 3.6
+        : impliedSpeedKmph;
+
+    final candidateFallbackSpeedKmph = rawFallbackSpeedKmph.isFinite
+        ? rawFallbackSpeedKmph.clamp(0.0, _gpsFallbackMaxReasonableSpeedKmph)
+              .toDouble()
+        : 0.0;
+
+    final gpsMoving =
+        gpsSpeedMps >= _gpsFallbackMinMovingSpeedMps || deltaMeters > 0;
+
+    final fallbackSpeedKmph = _stableGpsFallbackDisplaySpeedKmph(
+      candidateFallbackSpeedKmph,
+      gpsMoving: gpsMoving,
+      nowEpochMs: nowEpochMs,
+    );
+
+    final fallbackRpm = _rpmFromSpeedKmph(fallbackSpeedKmph);
+
+    final shouldClearAutoPauseSuppression =
+        gpsMoving && _state.autoPauseSuppressedUntilMovement;
+
+    if (gpsMoving) {
+      _lastGpsFallbackMotionEpochMs = nowEpochMs;
+      _notMovingSinceEpochMs = null;
+
+      if (_state.rideState == RideState.paused &&
+          _state.pauseReason == PauseReason.auto) {
+        resumeRide(
+          resumeEpochMs: nowEpochMs,
+          suppressAutoPauseUntilMovement: false,
+        );
+      }
+    } else if (_state.rideState == RideState.running) {
+      _checkAutoPause(nowEpochMs);
+    }
+
+    if (_state.rideState == RideState.paused) {
+      _state = _state.copyWith(
+        currentRpm: fallbackRpm,
+        currentSpeedKmph: fallbackSpeedKmph,
+        speedSource: SpeedSource.gpsFallback,
+        autoPauseSuppressedUntilMovement: shouldClearAutoPauseSuppression
+            ? false
+            : _state.autoPauseSuppressedUntilMovement,
+      );
+
+      _persistSnapshotFireAndForget();
+      notifyListeners();
+      return;
+    }
+
+    if (!_state.isRunning) {
+      return;
+    }
+
+    final fallbackDistanceKm = deltaMeters / 1000.0;
+    final nextDistanceKm = _state.distanceKm + fallbackDistanceKm;
+    final nextMaxSpeed = fallbackSpeedKmph > _state.maxSpeedKmph
+        ? fallbackSpeedKmph
+        : _state.maxSpeedKmph;
+
+    final activeDurationMs = calculateActiveDurationMs(nowEpochMs: nowEpochMs);
+    var nextAverageSpeed = _state.averageSpeedKmph;
+
+    if (activeDurationMs > 0) {
+      final calculatedAverageSpeed =
+          nextDistanceKm / (activeDurationMs / 3600000.0);
+
+      final shouldRefreshAverage =
+          _lastAverageSpeedUpdateEpochMs == null ||
+          nowEpochMs - _lastAverageSpeedUpdateEpochMs! >=
+              _averageSpeedDisplayRefreshMs;
+
+      if (shouldRefreshAverage) {
+        nextAverageSpeed = calculatedAverageSpeed;
+        _lastAverageSpeedUpdateEpochMs = nowEpochMs;
+      }
+    }
+
+    _state = _state.copyWith(
+      currentRpm: fallbackRpm,
+      currentSpeedKmph: fallbackSpeedKmph,
+      speedSource: SpeedSource.gpsFallback,
+      autoPauseSuppressedUntilMovement: shouldClearAutoPauseSuppression
+          ? false
+          : _state.autoPauseSuppressedUntilMovement,
+      distanceKm: nextDistanceKm,
+      maxSpeedKmph: nextMaxSpeed,
+      averageSpeedKmph: nextAverageSpeed,
     );
 
     _persistSnapshotFireAndForget();
@@ -482,6 +646,7 @@ class RideSessionController extends ChangeNotifier {
     _notMovingSinceEpochMs = null;
     _lastAverageSpeedUpdateEpochMs = null;
     _lastConsoleSyncEpochMs = null;
+    _resetGpsFallbackTracking();
 
     _state = _state.copyWith(
       autoPauseSuppressedUntilMovement: false,
@@ -511,6 +676,7 @@ class RideSessionController extends ChangeNotifier {
     _notMovingSinceEpochMs = null;
     _lastAverageSpeedUpdateEpochMs = startMs;
     _lastConsoleSyncEpochMs = null;
+    _resetGpsFallbackTracking();
 
     _state = _state.copyWith(
       autoPauseSuppressedUntilMovement: false,
@@ -644,6 +810,7 @@ class RideSessionController extends ChangeNotifier {
     _lastAverageSpeedUpdateEpochMs = null;
     _lastConsoleSyncEpochMs = null;
     _lastIndicatorCommandEpochMs = null;
+    _resetGpsFallbackTracking();
 
     onCommand?.call(BikeCommand.stop());
     _syncConsoleStateWithApp(force: true);
@@ -678,6 +845,9 @@ class RideSessionController extends ChangeNotifier {
     _durationTicker?.cancel();
 
     _durationTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      final nowEpochMs = DateTime.now().millisecondsSinceEpoch;
+      _checkGpsFallbackInactivity(nowEpochMs);
+
       if (_state.rideState == RideState.running) {
         notifyListeners();
       }
@@ -789,6 +959,102 @@ class RideSessionController extends ChangeNotifier {
     }
 
     return appDistanceKm;
+  }
+
+  double _distanceBetweenRoutePointsMeters(
+    RideRoutePoint from,
+    RideRoutePoint to,
+  ) {
+    const earthRadiusMeters = 6371000.0;
+
+    final fromLat = _degreesToRadians(from.latitude);
+    final toLat = _degreesToRadians(to.latitude);
+    final deltaLat = _degreesToRadians(to.latitude - from.latitude);
+    final deltaLng = _degreesToRadians(to.longitude - from.longitude);
+
+    final sinHalfLat = math.sin(deltaLat / 2);
+    final sinHalfLng = math.sin(deltaLng / 2);
+
+    final a = sinHalfLat * sinHalfLat +
+        math.cos(fromLat) * math.cos(toLat) * sinHalfLng * sinHalfLng;
+
+    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+
+    return earthRadiusMeters * c;
+  }
+
+  double _degreesToRadians(double degrees) {
+    return degrees * math.pi / 180.0;
+  }
+
+  double _rpmFromSpeedKmph(double speedKmph) {
+    if (speedKmph <= 0 || _settings.tyreCircumferenceMeters <= 0) return 0;
+
+    final speedMps = speedKmph * 1000.0 / 3600.0;
+    return speedMps / _settings.tyreCircumferenceMeters * 60.0;
+  }
+
+  void _checkGpsFallbackInactivity(int nowEpochMs) {
+    if (isConsoleConnected) return;
+    if (_state.rideState != RideState.running) return;
+
+    final lastPointEpochMs = _lastGpsFallbackPointEpochMs;
+    final pointIsStale = lastPointEpochMs == null ||
+        nowEpochMs - lastPointEpochMs >= _gpsFallbackStaleMs;
+
+    if (!pointIsStale) return;
+
+    _checkAutoPause(nowEpochMs);
+
+    if (_state.rideState != RideState.running) return;
+
+    final shouldClearDisplay = _lastGpsFallbackMotionEpochMs == null ||
+        nowEpochMs - _lastGpsFallbackMotionEpochMs! >=
+            _gpsFallbackDisplayGraceMs;
+
+    if (shouldClearDisplay &&
+        _state.speedSource == SpeedSource.gpsFallback &&
+        (_state.currentSpeedKmph != 0 || _state.currentRpm != 0)) {
+      _lastGpsFallbackDisplaySpeedKmph = 0.0;
+
+      _state = _state.copyWith(
+        currentSpeedKmph: 0.0,
+        currentRpm: 0.0,
+        speedSource: SpeedSource.gpsFallback,
+      );
+
+      _persistSnapshotFireAndForget();
+      notifyListeners();
+    }
+  }
+
+  double _stableGpsFallbackDisplaySpeedKmph(
+    double candidateSpeedKmph, {
+    required bool gpsMoving,
+    required int nowEpochMs,
+  }) {
+    if (candidateSpeedKmph > 0) {
+      _lastGpsFallbackDisplaySpeedKmph = candidateSpeedKmph;
+      return candidateSpeedKmph;
+    }
+
+    final lastMotionEpochMs = _lastGpsFallbackMotionEpochMs;
+
+    if (!gpsMoving &&
+        lastMotionEpochMs != null &&
+        nowEpochMs - lastMotionEpochMs <= _gpsFallbackDisplayGraceMs) {
+      return _lastGpsFallbackDisplaySpeedKmph;
+    }
+
+    _lastGpsFallbackDisplaySpeedKmph = 0.0;
+    return 0.0;
+  }
+
+  void _resetGpsFallbackTracking() {
+    _lastGpsFallbackDistancePoint = null;
+    _lastGpsFallbackPointEpochMs = null;
+    _lastGpsFallbackMotionEpochMs = null;
+    _lastGpsFallbackDisplaySpeedKmph = 0.0;
   }
 
   double _speedFromRpm(double rpm) {
