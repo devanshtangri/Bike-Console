@@ -1,7 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+
+import '../models/ride_models.dart';
 
 class ForegroundRideService {
   const ForegroundRideService();
@@ -36,6 +39,36 @@ class ForegroundRideService {
       return null;
     } catch (error) {
       debugPrint('ForegroundRideService.consumePendingAction failed: $error');
+      return null;
+    }
+  }
+
+  Future<PersistedRideSnapshot?> loadActiveRideSnapshot() async {
+    if (!Platform.isAndroid) return null;
+
+    try {
+      final raw = await _channel.invokeMethod<String>(
+        'loadActiveRideSnapshotJson',
+      );
+
+      if (raw == null || raw.trim().isEmpty) return null;
+
+      final decoded = jsonDecode(raw);
+
+      if (decoded is! Map<String, dynamic>) return null;
+
+      final snapshot = PersistedRideSnapshot.fromJson(decoded);
+
+      if (snapshot.rideState == RideState.stopped) return null;
+
+      return snapshot;
+    } on PlatformException catch (error) {
+      debugPrint(
+        'ForegroundRideService.loadActiveRideSnapshot failed: ${error.code} ${error.message}',
+      );
+      return null;
+    } catch (error) {
+      debugPrint('ForegroundRideService.loadActiveRideSnapshot failed: $error');
       return null;
     }
   }

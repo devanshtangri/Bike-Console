@@ -173,6 +173,53 @@ class RideSessionController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void restoreFromForegroundServiceSnapshot(PersistedRideSnapshot snapshot) {
+    if (snapshot.rideState == RideState.stopped) return;
+
+    final snapshotState = snapshot.toSessionState();
+    final currentRoutePoints = _state.routePoints;
+    final snapshotRoutePoints = snapshotState.routePoints;
+
+    final shouldUseSnapshotRoute =
+        snapshotRoutePoints.length > currentRoutePoints.length;
+
+    final nextRoutePoints = shouldUseSnapshotRoute
+        ? snapshotRoutePoints
+        : currentRoutePoints;
+
+    final nextDistanceKm = snapshotState.distanceKm > _state.distanceKm
+        ? snapshotState.distanceKm
+        : _state.distanceKm;
+
+    _state = _state.copyWith(
+      rideState: snapshotState.rideState,
+      pauseReason: snapshotState.pauseReason,
+      rideStartEpochMs: snapshotState.rideStartEpochMs,
+      currentPauseStartEpochMs: snapshotState.currentPauseStartEpochMs,
+      accumulatedPausedMs: snapshotState.accumulatedPausedMs,
+      distanceKm: nextDistanceKm,
+      averageSpeedKmph: _state.averageSpeedKmph,
+      maxSpeedKmph: _state.maxSpeedKmph,
+      routePoints: nextRoutePoints,
+      autoPauseSuppressedUntilMovement:
+          _state.autoPauseSuppressedUntilMovement ||
+          snapshotState.autoPauseSuppressedUntilMovement,
+    );
+
+    _notMovingSinceEpochMs = null;
+    _lastAverageSpeedUpdateEpochMs = null;
+    _lastConsoleSyncEpochMs = null;
+
+    if (_state.rideState == RideState.running) {
+      _startDurationTicker();
+    } else {
+      _stopDurationTicker();
+    }
+
+    _persistSnapshotFireAndForget(force: true);
+    notifyListeners();
+  }
+
   void handleRoutePoint(RideRoutePoint point) {
     if (!_state.isRouteRecordingActive || !point.isValid) {
       return;

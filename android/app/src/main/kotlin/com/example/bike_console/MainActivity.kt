@@ -69,6 +69,10 @@ class MainActivity : FlutterActivity() {
                         result.success(consumePendingRideAction())
                     }
 
+                    "loadActiveRideSnapshotJson" -> {
+                        result.success(RideTrackingService.loadActiveRideSnapshotJson(this))
+                    }
+
                     else -> result.notImplemented()
                 }
             } catch (error: Throwable) {

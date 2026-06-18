@@ -51,6 +51,7 @@ class BikeConsoleController extends ChangeNotifier {
     _startForegroundRideActionListener();
 
     await rideSessionController.initialize();
+    await _restoreForegroundRideSnapshotIfAvailable();
     await connectionController.initialize();
     await _consumePendingForegroundRideAction();
 
@@ -82,6 +83,13 @@ class BikeConsoleController extends ChangeNotifier {
             debugPrint('Foreground ride action listener failed: $error');
           },
         );
+  }
+
+  Future<void> _restoreForegroundRideSnapshotIfAvailable() async {
+    final snapshot = await _foregroundRideService.loadActiveRideSnapshot();
+    if (snapshot == null) return;
+
+    rideSessionController.restoreFromForegroundServiceSnapshot(snapshot);
   }
 
   Future<void> _consumePendingForegroundRideAction() async {
