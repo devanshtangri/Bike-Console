@@ -552,6 +552,12 @@ class PersistedRideSnapshot {
     required this.hazardEnabled,
     required this.appLeftIndicator,
     required this.appRightIndicator,
+    this.distanceSource = 'unknown',
+    this.flutterDistanceKm = 0,
+    this.nativeGpsDistanceKm = 0,
+    this.nativeRoutePointCount = 0,
+    this.snapshotUpdatedEpochMs,
+    this.lastFlutterUpdateEpochMs,
   });
 
   final RideState rideState;
@@ -567,6 +573,15 @@ class PersistedRideSnapshot {
   final bool hazardEnabled;
   final bool appLeftIndicator;
   final bool appRightIndicator;
+
+  /// Distance metadata supplied by the Android foreground service.
+  /// These fields prepare future ESP wheel-distance vs GPS fallback reconciliation.
+  final String distanceSource;
+  final double flutterDistanceKm;
+  final double nativeGpsDistanceKm;
+  final int nativeRoutePointCount;
+  final int? snapshotUpdatedEpochMs;
+  final int? lastFlutterUpdateEpochMs;
 
   factory PersistedRideSnapshot.fromSessionState(RideSessionState state) {
     return PersistedRideSnapshot(
@@ -584,6 +599,10 @@ class PersistedRideSnapshot {
       hazardEnabled: state.hazardEnabled,
       appLeftIndicator: state.appLeftIndicator,
       appRightIndicator: state.appRightIndicator,
+      distanceSource: state.speedSource.name,
+      flutterDistanceKm: state.distanceKm,
+      nativeGpsDistanceKm: state.distanceKm,
+      nativeRoutePointCount: state.routePoints.length,
     );
   }
 
@@ -605,6 +624,14 @@ class PersistedRideSnapshot {
       hazardEnabled: json['hazardEnabled'] == true,
       appLeftIndicator: json['appLeftIndicator'] == true,
       appRightIndicator: json['appRightIndicator'] == true,
+      distanceSource: _readString(json['distanceSource'], fallback: 'unknown'),
+      flutterDistanceKm: BikeSensorPacket._readDouble(json['flutterDistanceKm']),
+      nativeGpsDistanceKm: BikeSensorPacket._readDouble(json['nativeGpsDistanceKm']),
+      nativeRoutePointCount: _readInt(json['nativeRoutePointCount']),
+      snapshotUpdatedEpochMs: _readNullableInt(json['snapshotUpdatedEpochMs']),
+      lastFlutterUpdateEpochMs: _readNullableInt(
+        json['lastFlutterUpdateEpochMs'],
+      ),
     );
   }
 
@@ -623,6 +650,12 @@ class PersistedRideSnapshot {
       'hazardEnabled': hazardEnabled,
       'appLeftIndicator': appLeftIndicator,
       'appRightIndicator': appRightIndicator,
+      'distanceSource': distanceSource,
+      'flutterDistanceKm': flutterDistanceKm,
+      'nativeGpsDistanceKm': nativeGpsDistanceKm,
+      'nativeRoutePointCount': nativeRoutePointCount,
+      'snapshotUpdatedEpochMs': snapshotUpdatedEpochMs,
+      'lastFlutterUpdateEpochMs': lastFlutterUpdateEpochMs,
     };
   }
 
@@ -652,6 +685,11 @@ class PersistedRideSnapshot {
         .map(RideRoutePoint.fromJson)
         .where((point) => point.isValid)
         .toList(growable: false);
+  }
+
+  static String _readString(dynamic value, {required String fallback}) {
+    if (value is String && value.trim().isNotEmpty) return value.trim();
+    return fallback;
   }
 
   static RideState _readRideState(dynamic value) {

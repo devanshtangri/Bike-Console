@@ -61,6 +61,10 @@ class RideTrackingService : Service() {
         private const val MAX_NATIVE_ROUTE_POINTS = 20000
         private const val MAX_ACCEPTED_ACCURACY_METERS = 80.0
         private const val MAX_REASONABLE_GPS_SEGMENT_METERS = 140.0
+
+        // If Flutter has not updated the service recently, assume the UI/engine
+        // is detached and allow native GPS distance to act as the fallback.
+        private const val FLUTTER_DISTANCE_FRESH_MS = 4500L
     }
 
     private data class NativeRoutePoint(
@@ -84,6 +88,9 @@ class RideTrackingService : Service() {
     private var currentPauseStartEpochMs: Long? = null
     private var accumulatedPausedMs: Long = 0L
     private var nativeGpsDistanceKm: Double = 0.0
+    private var flutterDistanceKm: Double = 0.0
+    private var lastFlutterUpdateRealtimeMs: Long? = null
+    private var lastFlutterUpdateEpochMs: Long? = null
     private var lastAcceptedNativeRoutePoint: NativeRoutePoint? = null
     private val nativeRoutePoints = mutableListOf<NativeRoutePoint>()
 
@@ -174,7 +181,14 @@ class RideTrackingService : Service() {
         }
 
         if (intent.hasExtra(EXTRA_DISTANCE_KM)) {
-            distanceKm = intent.getDoubleExtra(EXTRA_DISTANCE_KM, distanceKm)
+            val reportedDistanceKm = intent
+                .getDoubleExtra(EXTRA_DISTANCE_KM, distanceKm)
+                .coerceAtLeast(0.0)
+
+            flutterDistanceKm = reportedDistanceKm
+            lastFlutterUpdateRealtimeMs = SystemClock.elapsedRealtime()
+            lastFlutterUpdateEpochMs = System.currentTimeMillis()
+            distanceKm = max(distanceKm, flutterDistanceKm)
         }
 
         if (intent.hasExtra(EXTRA_ELAPSED_ACTIVE_MS)) {
@@ -187,9 +201,11 @@ class RideTrackingService : Service() {
         }
 
         paused = nextPaused
-        if (distanceKm > nativeGpsDistanceKm) {
-            nativeGpsDistanceKm = distanceKm
+        if (flutterDistanceKm > nativeGpsDistanceKm) {
+            nativeGpsDistanceKm = flutterDistanceKm
         }
+
+        refreshDistanceAuthority()
         activeElapsedBaseMs = elapsedActiveMs
         activeRealtimeBaseMs = if (paused) null else SystemClock.elapsedRealtime()
 
@@ -210,7 +226,10 @@ class RideTrackingService : Service() {
         if (!foregroundStarted) {
             nativeRoutePoints.clear()
             lastAcceptedNativeRoutePoint = null
+            flutterDistanceKm = distanceKm
             nativeGpsDistanceKm = distanceKm
+            lastFlutterUpdateRealtimeMs = SystemClock.elapsedRealtime()
+            lastFlutterUpdateEpochMs = System.currentTimeMillis()
             accumulatedPausedMs = 0L
             currentPauseStartEpochMs = null
             rideStartEpochMs = System.currentTimeMillis() - elapsedActiveMs
@@ -442,7 +461,7 @@ class RideTrackingService : Service() {
 
             if (segmentMeters in 0.0..MAX_REASONABLE_GPS_SEGMENT_METERS) {
                 nativeGpsDistanceKm += segmentMeters / 1000.0
-                distanceKm = max(distanceKm, nativeGpsDistanceKm)
+                refreshDistanceAuthority()
             }
         }
 
@@ -475,6 +494,7 @@ class RideTrackingService : Service() {
     private fun persistActiveSnapshot() {
         if (!foregroundStarted) return
 
+        refreshDistanceAuthority()
         val snapshotJson = buildActiveSnapshotJson()
 
         getSharedPreferences(SNAPSHOT_PREFS, Context.MODE_PRIVATE)
@@ -515,7 +535,13 @@ class RideTrackingService : Service() {
             .put("rideStartEpochMs", rideStartEpochMs)
             .put("currentPauseStartEpochMs", currentPauseStartEpochMs)
             .put("accumulatedPausedMs", accumulatedPausedMs)
-            .put("distanceKm", max(distanceKm, nativeGpsDistanceKm))
+            .put("distanceKm", distanceKm)
+            .put("distanceSource", currentDistanceSource())
+            .put("flutterDistanceKm", flutterDistanceKm)
+            .put("nativeGpsDistanceKm", nativeGpsDistanceKm)
+            .put("nativeRoutePointCount", nativeRoutePoints.size)
+            .put("snapshotUpdatedEpochMs", System.currentTimeMillis())
+            .put("lastFlutterUpdateEpochMs", lastFlutterUpdateEpochMs)
             .put("averageSpeedKmph", 0.0)
             .put("maxSpeedKmph", 0.0)
             .put("routePoints", routePointsJson)
@@ -546,8 +572,16 @@ class RideTrackingService : Service() {
                 json.optLong("currentPauseStartEpochMs")
             }
             accumulatedPausedMs = json.optLong("accumulatedPausedMs", 0L)
-            distanceKm = json.optDouble("distanceKm", 0.0)
-            nativeGpsDistanceKm = distanceKm
+            distanceKm = json.optDouble("distanceKm", 0.0).coerceAtLeast(0.0)
+            flutterDistanceKm = json.optDouble("flutterDistanceKm", distanceKm).coerceAtLeast(0.0)
+            nativeGpsDistanceKm = json.optDouble("nativeGpsDistanceKm", distanceKm).coerceAtLeast(0.0)
+            lastFlutterUpdateRealtimeMs = null
+            lastFlutterUpdateEpochMs = if (json.isNull("lastFlutterUpdateEpochMs")) {
+                null
+            } else {
+                json.optLong("lastFlutterUpdateEpochMs")
+            }
+            refreshDistanceAuthority()
             elapsedActiveMs = currentElapsedFromWallClock()
             activeElapsedBaseMs = elapsedActiveMs
             activeRealtimeBaseMs = if (paused) null else SystemClock.elapsedRealtime()
@@ -586,6 +620,31 @@ class RideTrackingService : Service() {
         }
 
         return (now - start - accumulatedPausedMs - livePauseMs).coerceAtLeast(0L)
+    }
+
+    private fun refreshDistanceAuthority() {
+        val currentDistance = distanceKm.coerceAtLeast(0.0)
+        val flutterDistance = flutterDistanceKm.coerceAtLeast(0.0)
+        val gpsDistance = nativeGpsDistanceKm.coerceAtLeast(0.0)
+
+        distanceKm = if (paused) {
+            max(currentDistance, flutterDistance)
+        } else if (isFlutterDistanceFresh()) {
+            max(currentDistance, flutterDistance)
+        } else {
+            max(max(currentDistance, flutterDistance), gpsDistance)
+        }
+    }
+
+    private fun isFlutterDistanceFresh(): Boolean {
+        val lastUpdate = lastFlutterUpdateRealtimeMs ?: return false
+        val ageMs = SystemClock.elapsedRealtime() - lastUpdate
+        return ageMs in 0L..FLUTTER_DISTANCE_FRESH_MS
+    }
+
+    private fun currentDistanceSource(): String {
+        if (paused) return "paused"
+        return if (isFlutterDistanceFresh()) "wheel" else "gpsFallback"
     }
 
     private fun createNotificationChannel() {
