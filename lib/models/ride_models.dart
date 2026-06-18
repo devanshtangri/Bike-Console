@@ -1,3 +1,5 @@
+import 'ride_route_point.dart';
+
 enum RideState { stopped, countdown, running, paused }
 
 enum PauseReason { none, manual, auto }
@@ -96,6 +98,7 @@ class RideSessionState {
     required this.currentSpeedKmph,
     required this.currentRpm,
     required this.speedSource,
+    required this.routePoints,
     required this.hazardEnabled,
     required this.appLeftIndicator,
     required this.appRightIndicator,
@@ -141,6 +144,10 @@ class RideSessionState {
   /// Tells UI whether speed is from wheel, GPS fallback, or none.
   final SpeedSource speedSource;
 
+  /// GPS route points collected during the current ride.
+  /// Each point stores whether it belongs to a running or paused segment.
+  final List<RideRoutePoint> routePoints;
+
   /// Logical app-side hazard state.
   /// This should stay true even if physical indicators temporarily override output.
   final bool hazardEnabled;
@@ -171,6 +178,7 @@ class RideSessionState {
       currentSpeedKmph: 0,
       currentRpm: 0,
       speedSource: SpeedSource.none,
+      routePoints: [],
       hazardEnabled: false,
       appLeftIndicator: false,
       appRightIndicator: false,
@@ -186,6 +194,7 @@ class RideSessionState {
   bool get isRunning => rideState == RideState.running;
   bool get isPaused => rideState == RideState.paused;
   bool get isRideActive => rideState != RideState.stopped;
+  bool get isRouteRecordingActive => isRunning || isPaused;
 
   bool get physicalIndicatorOverrideActive =>
       leftPhysicalIndicator || rightPhysicalIndicator;
@@ -220,6 +229,7 @@ class RideSessionState {
     double? currentSpeedKmph,
     double? currentRpm,
     SpeedSource? speedSource,
+    List<RideRoutePoint>? routePoints,
     bool? hazardEnabled,
     bool? appLeftIndicator,
     bool? appRightIndicator,
@@ -244,6 +254,7 @@ class RideSessionState {
       currentSpeedKmph: currentSpeedKmph ?? this.currentSpeedKmph,
       currentRpm: currentRpm ?? this.currentRpm,
       speedSource: speedSource ?? this.speedSource,
+      routePoints: routePoints ?? this.routePoints,
       hazardEnabled: hazardEnabled ?? this.hazardEnabled,
       appLeftIndicator: appLeftIndicator ?? this.appLeftIndicator,
       appRightIndicator: appRightIndicator ?? this.appRightIndicator,
@@ -526,6 +537,7 @@ class PersistedRideSnapshot {
     required this.distanceKm,
     required this.averageSpeedKmph,
     required this.maxSpeedKmph,
+    required this.routePoints,
     required this.hazardEnabled,
     required this.appLeftIndicator,
     required this.appRightIndicator,
@@ -539,6 +551,7 @@ class PersistedRideSnapshot {
   final double distanceKm;
   final double averageSpeedKmph;
   final double maxSpeedKmph;
+  final List<RideRoutePoint> routePoints;
   final bool hazardEnabled;
   final bool appLeftIndicator;
   final bool appRightIndicator;
@@ -553,6 +566,7 @@ class PersistedRideSnapshot {
       distanceKm: state.distanceKm,
       averageSpeedKmph: state.averageSpeedKmph,
       maxSpeedKmph: state.maxSpeedKmph,
+      routePoints: state.routePoints,
       hazardEnabled: state.hazardEnabled,
       appLeftIndicator: state.appLeftIndicator,
       appRightIndicator: state.appRightIndicator,
@@ -571,6 +585,7 @@ class PersistedRideSnapshot {
       distanceKm: BikeSensorPacket._readDouble(json['distanceKm']),
       averageSpeedKmph: BikeSensorPacket._readDouble(json['averageSpeedKmph']),
       maxSpeedKmph: BikeSensorPacket._readDouble(json['maxSpeedKmph']),
+      routePoints: _readRoutePoints(json['routePoints']),
       hazardEnabled: json['hazardEnabled'] == true,
       appLeftIndicator: json['appLeftIndicator'] == true,
       appRightIndicator: json['appRightIndicator'] == true,
@@ -587,6 +602,7 @@ class PersistedRideSnapshot {
       'distanceKm': distanceKm,
       'averageSpeedKmph': averageSpeedKmph,
       'maxSpeedKmph': maxSpeedKmph,
+      'routePoints': routePoints.map((point) => point.toJson()).toList(),
       'hazardEnabled': hazardEnabled,
       'appLeftIndicator': appLeftIndicator,
       'appRightIndicator': appRightIndicator,
@@ -603,10 +619,21 @@ class PersistedRideSnapshot {
       distanceKm: distanceKm,
       averageSpeedKmph: averageSpeedKmph,
       maxSpeedKmph: maxSpeedKmph,
+      routePoints: routePoints,
       hazardEnabled: hazardEnabled,
       appLeftIndicator: appLeftIndicator,
       appRightIndicator: appRightIndicator,
     );
+  }
+
+  static List<RideRoutePoint> _readRoutePoints(dynamic value) {
+    if (value is! List) return const [];
+
+    return value
+        .whereType<Map<String, dynamic>>()
+        .map(RideRoutePoint.fromJson)
+        .where((point) => point.isValid)
+        .toList(growable: false);
   }
 
   static RideState _readRideState(dynamic value) {

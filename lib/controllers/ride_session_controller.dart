@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../models/ride_models.dart';
+import '../models/ride_route_point.dart';
 import '../models/saved_ride_session.dart';
 import '../services/ride_history_service.dart';
 import '../services/ride_persistence_service.dart';
@@ -102,7 +103,6 @@ class RideSessionController extends ChangeNotifier {
     notifyListeners();
   }
 
-
   void editCurrentRideData({
     required double distanceKm,
     required double averageSpeedKmph,
@@ -173,6 +173,35 @@ class RideSessionController extends ChangeNotifier {
       _stopDurationTicker();
     }
 
+    notifyListeners();
+  }
+
+  void handleRoutePoint(RideRoutePoint point) {
+    if (!_state.isRouteRecordingActive || !point.isValid) {
+      return;
+    }
+
+    final mode = _state.isPaused ? RideRouteMode.paused : RideRouteMode.running;
+    final normalizedPoint = point.copyWith(rideMode: mode);
+    final currentPoints = _state.routePoints;
+
+    if (currentPoints.isNotEmpty) {
+      final last = currentPoints.last;
+
+      final isDuplicate = last.latitude == normalizedPoint.latitude &&
+          last.longitude == normalizedPoint.longitude &&
+          last.rideMode == normalizedPoint.rideMode;
+
+      if (isDuplicate) {
+        return;
+      }
+    }
+
+    _state = _state.copyWith(
+      routePoints: [...currentPoints, normalizedPoint],
+    );
+
+    _persistSnapshotFireAndForget();
     notifyListeners();
   }
 
@@ -417,6 +446,7 @@ class RideSessionController extends ChangeNotifier {
       averageSpeedKmph: 0,
       maxSpeedKmph: 0,
       speedSource: SpeedSource.wheel,
+      routePoints: const [],
       leftOutputActive: false,
       rightOutputActive: false,
     );
@@ -444,6 +474,7 @@ class RideSessionController extends ChangeNotifier {
       distanceKm: 0,
       averageSpeedKmph: 0,
       maxSpeedKmph: 0,
+      routePoints: const [],
     );
 
     onCommand?.call(
@@ -549,6 +580,7 @@ class RideSessionController extends ChangeNotifier {
           distanceKm: completedState.distanceKm,
           averageSpeedKmph: calculatedAverageSpeed,
           maxSpeedKmph: completedState.maxSpeedKmph,
+          routePoints: completedState.routePoints,
         ),
       );
     }

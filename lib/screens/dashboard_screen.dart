@@ -7,6 +7,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../bike_data.dart';
 import '../controllers/map_tracking_controller.dart';
 import '../controllers/bike_console_controller.dart';
+import '../models/ride_route_point.dart';
 import '../map_styles/dark_map_style.dart';
 import '../widgets/dashboard_stat_card.dart';
 import '../widgets/hex_settings_button.dart';
@@ -61,7 +62,11 @@ class _DashboardScreenState extends State<DashboardScreen>
         curve: Curves.easeInOut,
       ),
     );
-    _mapTrackingController = MapTrackingController();
+    _mapTrackingController = MapTrackingController(
+      onRoutePoint: _handleRoutePoint,
+      rideRouteModeProvider: _currentRideRouteMode,
+    );
+
     _syncMapTrailRecordingState();
     _mapTrackingController.addListener(_onMapTrackingChanged);
     _mapTrackingController.initialize();
@@ -90,20 +95,22 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   void _syncMapTrailRecordingState() {
-    final rideStateName = widget
-        .bikeConsoleController
-        .rideSessionController
-        .state
-        .rideState
-        .name;
+    final rideState = widget.bikeConsoleController.rideSessionController.state;
 
-    final isRideActive = rideStateName == "running" || rideStateName == "paused";
-    final isConsoleConnected =
-        widget.bikeConsoleController.connectionController.isConnected;
-
+    _mapTrackingController.setRoutePoints(rideState.routePoints);
     _mapTrackingController.setTrailRecordingEnabled(
-      isRideActive && isConsoleConnected,
+      rideState.isRouteRecordingActive,
     );
+  }
+
+  RideRouteMode _currentRideRouteMode() {
+    final rideState = widget.bikeConsoleController.rideSessionController.state;
+
+    return rideState.isPaused ? RideRouteMode.paused : RideRouteMode.running;
+  }
+
+  void _handleRoutePoint(RideRoutePoint point) {
+    widget.bikeConsoleController.rideSessionController.handleRoutePoint(point);
   }
 
   Future<void> _startRideWithCountdown() async {

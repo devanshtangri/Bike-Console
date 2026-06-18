@@ -2,4 +2,5 @@ import 'package:flutter/material.dart';
 
 class AppColors {
   static const premiumGreen = Color(0xFF21C68E);
+  static const premiumYellow = Color(0xFFFFC928);
 }

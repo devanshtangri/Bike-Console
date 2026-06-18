@@ -1,3 +1,5 @@
+import 'ride_route_point.dart';
+
 class SavedRideSession {
   const SavedRideSession({
     required this.id,
@@ -7,6 +9,7 @@ class SavedRideSession {
     required this.distanceKm,
     required this.averageSpeedKmph,
     required this.maxSpeedKmph,
+    required this.routePoints,
   });
 
   final String id;
@@ -16,6 +19,7 @@ class SavedRideSession {
   final double distanceKm;
   final double averageSpeedKmph;
   final double maxSpeedKmph;
+  final List<RideRoutePoint> routePoints;
 
   Map<String, dynamic> toJson() {
     return {
@@ -26,6 +30,7 @@ class SavedRideSession {
       "distanceKm": distanceKm,
       "averageSpeedKmph": averageSpeedKmph,
       "maxSpeedKmph": maxSpeedKmph,
+      "routePoints": routePoints.map((point) => point.toJson()).toList(),
     };
   }
 
@@ -38,7 +43,18 @@ class SavedRideSession {
       distanceKm: _readDouble(json["distanceKm"]),
       averageSpeedKmph: _readDouble(json["averageSpeedKmph"]),
       maxSpeedKmph: _readDouble(json["maxSpeedKmph"]),
+      routePoints: _readRoutePoints(json["routePoints"]),
     );
+  }
+
+  static List<RideRoutePoint> _readRoutePoints(dynamic value) {
+    if (value is! List) return const [];
+
+    return value
+        .whereType<Map<String, dynamic>>()
+        .map(RideRoutePoint.fromJson)
+        .where((point) => point.isValid)
+        .toList(growable: false);
   }
 
   static int _readInt(dynamic value) {

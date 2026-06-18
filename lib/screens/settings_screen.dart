@@ -148,7 +148,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-
   bool get _rideDataEditingAvailable {
     final rideState = widget.bikeConsoleController.rideSessionController.state;
 
@@ -870,7 +869,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
-
 class _RideDataInputField extends StatelessWidget {
   const _RideDataInputField({
     required this.label,
@@ -952,12 +950,11 @@ class _SettingsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final borderRadius = BorderRadius.circular(24);
+
     return Container(
-      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: const Color(0xFF181818).withValues(alpha: 0.78),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+        borderRadius: borderRadius,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.35),
@@ -966,20 +963,31 @@ class _SettingsCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 19,
-              fontWeight: FontWeight.w700,
-            ),
+      child: Material(
+        color: const Color(0xFF181818).withValues(alpha: 0.78),
+        shape: RoundedRectangleBorder(
+          borderRadius: borderRadius,
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.10)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 19,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ...children,
+            ],
           ),
-          const SizedBox(height: 16),
-          ...children,
-        ],
+        ),
       ),
     );
   }

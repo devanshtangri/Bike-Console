@@ -5,9 +5,15 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import '../models/ride_route_point.dart';
 import '../theme/app_colors.dart';
 
 class MapTrackingController extends ChangeNotifier {
+  MapTrackingController({
+    this.onRoutePoint,
+    this.rideRouteModeProvider,
+  });
+
   static const double navigationMapTilt = 45.0;
   static const double navigationMapZoom = 17.45;
   static const double navigationBearingSmoothing = 1.0;
@@ -21,6 +27,9 @@ class MapTrackingController extends ChangeNotifier {
   static const double _followCameraSettleDistanceMeters = 0.12;
   static const double _followCameraBearingSettleDegrees = 0.35;
   static const double _followCameraSnapDistanceMeters = 180.0;
+
+  final void Function(RideRoutePoint point)? onRoutePoint;
+  final RideRouteMode Function()? rideRouteModeProvider;
 
   GoogleMapController? _mapController;
   StreamSubscription<Position>? _positionSubscription;
@@ -47,7 +56,7 @@ class MapTrackingController extends ChangeNotifier {
   Timer? _followCameraTimer;
 
   BitmapDescriptor? _currentLocationIcon;
-  final List<LatLng> _routePoints = [];
+  List<RideRoutePoint> _routePoints = const [];
   bool _trailRecordingEnabled = false;
 
   bool _disposed = false;
@@ -74,24 +83,72 @@ class MapTrackingController extends ChangeNotifier {
     };
   }
 
-
   Set<Polyline> get polylines {
     if (!_trailRecordingEnabled || _routePoints.length < 2) {
       return {};
     }
 
-    return {
-      Polyline(
-        polylineId: const PolylineId("ride_trail"),
-        points: _routePoints,
-        color: AppColors.premiumGreen,
-        width: 5,
-        zIndex: 5,
-        geodesic: true,
-      ),
-    };
+    final result = <Polyline>{};
+    var segmentIndex = 0;
+    var currentMode = _routePoints.first.rideMode;
+    var currentSegment = <LatLng>[
+      _toLatLng(_routePoints.first),
+    ];
+
+    for (var index = 1; index < _routePoints.length; index++) {
+      final point = _routePoints[index];
+      final latLng = _toLatLng(point);
+
+      if (point.rideMode != currentMode && currentSegment.length >= 2) {
+        result.add(
+          _buildSegmentPolyline(
+            id: 'ride_trail_$segmentIndex',
+            mode: currentMode,
+            points: currentSegment,
+          ),
+        );
+        segmentIndex++;
+        currentSegment = [currentSegment.last, latLng];
+        currentMode = point.rideMode;
+      } else {
+        currentSegment.add(latLng);
+        currentMode = point.rideMode;
+      }
+    }
+
+    if (currentSegment.length >= 2) {
+      result.add(
+        _buildSegmentPolyline(
+          id: 'ride_trail_$segmentIndex',
+          mode: currentMode,
+          points: currentSegment,
+        ),
+      );
+    }
+
+    return result;
   }
 
+  Polyline _buildSegmentPolyline({
+    required String id,
+    required RideRouteMode mode,
+    required List<LatLng> points,
+  }) {
+    return Polyline(
+      polylineId: PolylineId(id),
+      points: points,
+      color: mode == RideRouteMode.paused
+          ? AppColors.premiumYellow
+          : AppColors.premiumGreen,
+      width: 5,
+      zIndex: 5,
+      geodesic: true,
+    );
+  }
+
+  LatLng _toLatLng(RideRoutePoint point) {
+    return LatLng(point.latitude, point.longitude);
+  }
 
   void setTrailRecordingEnabled(bool enabled) {
     if (_trailRecordingEnabled == enabled) {
@@ -99,13 +156,33 @@ class MapTrackingController extends ChangeNotifier {
     }
 
     _trailRecordingEnabled = enabled;
-    _routePoints.clear();
+    notifyListeners();
+  }
 
-    if (enabled && _currentLatLng != null) {
-      _routePoints.add(_currentLatLng!);
+  void setRoutePoints(List<RideRoutePoint> routePoints) {
+    if (_sameRoutePointList(_routePoints, routePoints)) {
+      return;
     }
 
+    _routePoints = List<RideRoutePoint>.unmodifiable(routePoints);
     notifyListeners();
+  }
+
+  bool _sameRoutePointList(
+    List<RideRoutePoint> current,
+    List<RideRoutePoint> next,
+  ) {
+    if (identical(current, next)) return true;
+    if (current.length != next.length) return false;
+    if (current.isEmpty) return true;
+
+    final currentLast = current.last;
+    final nextLast = next.last;
+
+    return currentLast.latitude == nextLast.latitude &&
+        currentLast.longitude == nextLast.longitude &&
+        currentLast.rideMode == nextLast.rideMode &&
+        currentLast.timestampMs == nextLast.timestampMs;
   }
 
   Future<void> initialize() async {
@@ -179,7 +256,6 @@ class MapTrackingController extends ChangeNotifier {
     final position = await Geolocator.getCurrentPosition(
       locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
     );
-
     final target = LatLng(position.latitude, position.longitude);
 
     _updateHeadingFromPosition(position, target);
@@ -343,8 +419,7 @@ class MapTrackingController extends ChangeNotifier {
               _followCameraBearingSettleDegrees
           ? desiredBearing
           : _normalizeBearing(
-              currentBearing +
-                  (bearingToDesired * _followCameraBearingLerp),
+              currentBearing + (bearingToDesired * _followCameraBearingLerp),
             );
 
       _visualFollowCameraTarget = nextTarget;
@@ -414,39 +489,62 @@ class MapTrackingController extends ChangeNotifier {
 
     _currentLocationIcon = await _createCurrentLocationIcon();
 
-    _positionSubscription =
-        Geolocator.getPositionStream(
-          locationSettings: AndroidSettings(
-            accuracy: LocationAccuracy.high,
-            distanceFilter: 0,
-            intervalDuration: Duration(seconds: 1),
-          ),
-        ).listen((position) async {
-          final nextPoint = LatLng(position.latitude, position.longitude);
+    _positionSubscription = Geolocator.getPositionStream(
+      locationSettings: AndroidSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 0,
+        intervalDuration: const Duration(seconds: 1),
+      ),
+    ).listen((position) async {
+      final nextPoint = LatLng(position.latitude, position.longitude);
 
-          _updateHeadingFromPosition(position, nextPoint);
-          _currentLatLng = nextPoint;
+      _updateHeadingFromPosition(position, nextPoint);
+      _currentLatLng = nextPoint;
 
-          if (_trailRecordingEnabled &&
-              (_routePoints.isEmpty || _routePoints.last != nextPoint)) {
-            _routePoints.add(nextPoint);
-          }
+      if (_trailRecordingEnabled) {
+        final routePoint = RideRoutePoint(
+          latitude: position.latitude,
+          longitude: position.longitude,
+          timestampMs: DateTime.now().millisecondsSinceEpoch,
+          accuracyMeters: position.accuracy,
+          gpsSpeedMps: position.speed.isFinite && position.speed > 0
+              ? position.speed
+              : 0,
+          rideMode: rideRouteModeProvider?.call() ?? RideRouteMode.running,
+          source: RideRoutePointSource.gps,
+        );
 
-          if (!_followUser) {
-            _displayHeading = _currentHeading;
-          }
+        if (routePoint.isValid && _shouldAppendRoutePoint(routePoint)) {
+          _routePoints = [..._routePoints, routePoint];
+          onRoutePoint?.call(routePoint);
+        }
+      }
 
-          notifyListeners();
+      if (!_followUser) {
+        _displayHeading = _currentHeading;
+      }
 
-          if (!_hasCenteredOnStartup && _mapController != null) {
-            _hasCenteredOnStartup = true;
-            _followUser = true;
-            await _moveNavigationCameraTo(nextPoint, animated: true);
-            return;
-          }
+      notifyListeners();
 
-          await _maybeFollowUser(nextPoint);
-        });
+      if (!_hasCenteredOnStartup && _mapController != null) {
+        _hasCenteredOnStartup = true;
+        _followUser = true;
+        await _moveNavigationCameraTo(nextPoint, animated: true);
+        return;
+      }
+
+      await _maybeFollowUser(nextPoint);
+    });
+  }
+
+  bool _shouldAppendRoutePoint(RideRoutePoint point) {
+    if (_routePoints.isEmpty) return true;
+
+    final last = _routePoints.last;
+
+    return last.latitude != point.latitude ||
+        last.longitude != point.longitude ||
+        last.rideMode != point.rideMode;
   }
 
   void _updateHeadingFromPosition(Position position, LatLng nextPoint) {
