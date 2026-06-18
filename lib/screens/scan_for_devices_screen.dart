@@ -14,10 +14,19 @@ class ScanForDevicesScreen extends StatefulWidget {
 }
 
 class _ScanForDevicesScreenState extends State<ScanForDevicesScreen> {
-  final List<ScanResult> devices = [];
+  static final Guid _serviceUuid = Guid('7a8d0001-4f7a-4e6f-9a0b-1f2e3d4c5b6a');
+  static const String _consoleName = 'Bike Console';
+
+  final Map<String, ScanResult> _devicesById = {};
   StreamSubscription<List<ScanResult>>? scanSub;
   Timer? _scanTimer;
   bool _isScanning = false;
+
+  List<ScanResult> get _visibleDevices {
+    final next = _devicesById.values.toList();
+    next.sort((a, b) => b.rssi.compareTo(a.rssi));
+    return next;
+  }
 
   @override
   void initState() {
@@ -40,32 +49,43 @@ class _ScanForDevicesScreenState extends State<ScanForDevicesScreen> {
 
     if (mounted) {
       setState(() {
-        devices.clear();
         _isScanning = true;
       });
     }
 
     scanSub = FlutterBluePlus.scanResults.listen((results) {
-      final filtered = results.where((r) {
-        final name = _deviceName(r);
-        return name.toLowerCase().contains("bike");
-      }).toList();
+      var changed = false;
 
-      filtered.sort((a, b) => b.rssi.compareTo(a.rssi));
+      for (final result in results) {
+        if (!_isMatchingConsole(result)) continue;
 
-      if (mounted) {
-        setState(() {
-          devices
-            ..clear()
-            ..addAll(filtered);
-        });
+        final id = result.device.remoteId.str;
+        final previous = _devicesById[id];
+
+        if (previous == null ||
+            previous.rssi != result.rssi ||
+            _deviceName(previous) != _deviceName(result)) {
+          _devicesById[id] = result;
+          changed = true;
+        }
+      }
+
+      if (mounted && changed) {
+        setState(() {});
       }
     });
 
-    await FlutterBluePlus.startScan(
-      timeout: const Duration(seconds: 30),
-      androidUsesFineLocation: false,
-    );
+    try {
+      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 30));
+    } catch (error) {
+      debugPrint('Pairing scan failed: $error');
+      if (mounted) {
+        setState(() {
+          _isScanning = false;
+        });
+      }
+      return;
+    }
 
     _scanTimer = Timer(const Duration(seconds: 30), () {
       if (!mounted) return;
@@ -75,20 +95,42 @@ class _ScanForDevicesScreenState extends State<ScanForDevicesScreen> {
     });
   }
 
+  bool _isMatchingConsole(ScanResult result) {
+    final platformName = result.device.platformName.trim();
+    final advName = result.advertisementData.advName.trim();
+
+    final nameMatches = platformName == _consoleName ||
+        advName == _consoleName ||
+        platformName.toLowerCase().contains('bike') ||
+        advName.toLowerCase().contains('bike');
+
+    final serviceMatches = result.advertisementData.serviceUuids.any(
+      (uuid) => uuid.toString().toLowerCase() == _serviceUuid.toString().toLowerCase(),
+    );
+
+    return nameMatches || serviceMatches;
+  }
+
   String _deviceName(ScanResult result) {
-    return result.device.platformName.isNotEmpty
-        ? result.device.platformName
-        : result.advertisementData.advName;
+    final platformName = result.device.platformName.trim();
+    if (platformName.isNotEmpty) return platformName;
+
+    final advName = result.advertisementData.advName.trim();
+    if (advName.isNotEmpty) return advName;
+
+    return _consoleName;
   }
 
   String _signalLabel(int rssi) {
-    if (rssi >= -60) return "Strong signal";
-    if (rssi >= -75) return "Good signal";
-    return "Weak signal";
+    if (rssi >= -60) return 'Strong signal';
+    if (rssi >= -75) return 'Good signal';
+    return 'Weak signal';
   }
 
   @override
   Widget build(BuildContext context) {
+    final visibleDevices = _visibleDevices;
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
@@ -111,7 +153,7 @@ class _ScanForDevicesScreenState extends State<ScanForDevicesScreen> {
                 children: [
                   const Expanded(
                     child: Text(
-                      "Nearby consoles",
+                      'Nearby consoles',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 17,
@@ -121,11 +163,9 @@ class _ScanForDevicesScreenState extends State<ScanForDevicesScreen> {
                     ),
                   ),
                   Text(
-                    _isScanning ? "Scanning" : "Scan complete",
+                    _isScanning ? 'Scanning' : 'Scan complete',
                     style: TextStyle(
-                      color: _isScanning
-                          ? AppColors.premiumGreen
-                          : Colors.white38,
+                      color: _isScanning ? AppColors.premiumGreen : Colors.white38,
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
                     ),
@@ -136,18 +176,17 @@ class _ScanForDevicesScreenState extends State<ScanForDevicesScreen> {
               Expanded(
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 260),
-                  child: devices.isEmpty
+                  child: visibleDevices.isEmpty
                       ? _EmptyScanState(isScanning: _isScanning)
                       : ListView.separated(
-                          itemCount: devices.length,
-                          separatorBuilder: (_, _) => const SizedBox(height: 10),
+                          itemCount: visibleDevices.length,
+                          separatorBuilder: (context, index) => const SizedBox(height: 10),
                           itemBuilder: (context, index) {
-                            final result = devices[index];
-                            final name = _deviceName(result).isNotEmpty
-                                ? _deviceName(result)
-                                : "Bike Console";
+                            final result = visibleDevices[index];
+                            final name = _deviceName(result);
 
                             return _DeviceCard(
+                              key: ValueKey(result.device.remoteId.str),
                               name: name,
                               rssi: result.rssi,
                               signalLabel: _signalLabel(result.rssi),
@@ -188,7 +227,7 @@ class _ScanHeader extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                "Pair a Console",
+                'Pair a Console',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 24,
@@ -198,7 +237,7 @@ class _ScanHeader extends StatelessWidget {
               ),
               SizedBox(height: 2),
               Text(
-                "Choose your Bike Console",
+                'Choose your Bike Console',
                 style: TextStyle(
                   color: Colors.white38,
                   fontSize: 12.5,
@@ -318,7 +357,7 @@ class _ScanHero extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  "Looking for Bike Console",
+                  'Looking for Bike Console',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 17,
@@ -328,7 +367,7 @@ class _ScanHero extends StatelessWidget {
                 ),
                 SizedBox(height: 5),
                 Text(
-                  "Keep your Bike Console powered on and nearby. Tap it once it appears.",
+                  'Keep your Bike Console powered on and nearby. Tap it once it appears.',
                   style: TextStyle(
                     color: Colors.white38,
                     fontSize: 12.5,
@@ -346,6 +385,7 @@ class _ScanHero extends StatelessWidget {
 
 class _DeviceCard extends StatelessWidget {
   const _DeviceCard({
+    super.key,
     required this.name,
     required this.rssi,
     required this.signalLabel,
@@ -401,7 +441,7 @@ class _DeviceCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    "$signalLabel • RSSI $rssi dBm",
+                    '$signalLabel • RSSI $rssi dBm',
                     style: const TextStyle(
                       color: Colors.white38,
                       fontSize: 12.2,
@@ -469,7 +509,7 @@ class _EmptyScanState extends StatelessWidget {
             ),
           const SizedBox(height: 16),
           Text(
-            isScanning ? "Scanning for your console" : "No console found",
+            isScanning ? 'Scanning for your console' : 'No console found',
             style: const TextStyle(
               color: Colors.white,
               fontSize: 16,
@@ -478,7 +518,7 @@ class _EmptyScanState extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           const Text(
-            "Make sure your Bike Console is powered on and nearby.",
+            'Make sure your Bike Console is powered on and nearby.',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: Colors.white38,

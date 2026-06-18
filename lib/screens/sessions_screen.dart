@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/saved_ride_session.dart';
 import '../services/app_haptics.dart';
 import '../services/ride_history_service.dart';
+import 'session_detail_screen.dart';
 
 class SessionsScreen extends StatefulWidget {
   const SessionsScreen({super.key});
@@ -174,12 +175,10 @@ class _SessionsScreenState extends State<SessionsScreen> {
   }
 
   void _showSessionDetails(SavedRideSession session) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0.65),
-      isScrollControlled: true,
-      builder: (_) => _SessionDetailsSheet(session: session),
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SessionDetailScreen(session: session),
+      ),
     );
   }
 
@@ -828,190 +827,6 @@ class _SessionCardMetric extends StatelessWidget {
                 fontSize: 8.8,
                 fontWeight: FontWeight.w600,
                 letterSpacing: 0.25,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SessionDetailsSheet extends StatelessWidget {
-  const _SessionDetailsSheet({required this.session});
-
-  final SavedRideSession session;
-
-  @override
-  Widget build(BuildContext context) {
-    final dateText = _formatSessionDate(session.endEpochMs);
-    final durationText = _formatCompactDuration(session.activeDurationMs);
-
-    return SafeArea(
-      top: false,
-      child: Container(
-        margin: const EdgeInsets.all(12),
-        padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
-        decoration: BoxDecoration(
-          color: const Color(0xFF121212),
-          borderRadius: BorderRadius.circular(28),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.10),
-            width: 1,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.45),
-              blurRadius: 28,
-              offset: const Offset(0, 14),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 42,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.20),
-                  borderRadius: BorderRadius.circular(99),
-                ),
-              ),
-            ),
-            Row(
-              children: [
-                Container(
-                  width: 46,
-                  height: 46,
-                  decoration: BoxDecoration(
-                    color: Colors.greenAccent.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(17),
-                    border: Border.all(
-                      color: Colors.greenAccent.withValues(alpha: 0.20),
-                      width: 1,
-                    ),
-                  ),
-                  child: const Icon(
-                    Icons.route_rounded,
-                    color: Colors.greenAccent,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 13),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "${session.distanceKm.toStringAsFixed(2)} km ride",
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 21,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        dateText,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white38,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            _DetailInfoRow(
-              icon: Icons.route_outlined,
-              label: "Distance",
-              value: "${session.distanceKm.toStringAsFixed(2)} km",
-            ),
-            _DetailInfoRow(
-              icon: Icons.timer_outlined,
-              label: "Active Duration",
-              value: durationText,
-            ),
-            _DetailInfoRow(
-              icon: Icons.speed_outlined,
-              label: "Average Speed",
-              value: "${session.averageSpeedKmph.toStringAsFixed(1)} km/h",
-            ),
-            _DetailInfoRow(
-              icon: Icons.trending_up_rounded,
-              label: "Max Speed",
-              value: "${session.maxSpeedKmph.toStringAsFixed(1)} km/h",
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _DetailInfoRow extends StatelessWidget {
-  const _DetailInfoRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.28),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.07),
-          width: 1,
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            color: Colors.greenAccent.withValues(alpha: 0.78),
-            size: 19,
-          ),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(
-                color: Colors.white54,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Flexible(
-            child: Text(
-              value,
-              textAlign: TextAlign.right,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 13.5,
-                fontWeight: FontWeight.w700,
               ),
             ),
           ),
