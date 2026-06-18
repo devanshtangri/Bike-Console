@@ -127,6 +127,8 @@ class _DashboardScreenState extends State<DashboardScreen>
         _countdownValue = value;
       });
 
+      AppHaptics.lightImpact();
+
       await Future.delayed(const Duration(milliseconds: 800));
     }
 
@@ -156,6 +158,10 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
 
     return "${value.toStringAsFixed(1)} km/h";
+  }
+
+  String _formatMaxSpeedStat(double value) {
+    return "${value.toStringAsFixed(0)} km/h";
   }
 
   String _formatDistanceStat(double value) {
@@ -644,7 +650,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                                 Expanded(
                                   child: DashboardStatCard(
                                     title: "MAX SPEED",
-                                    value: _formatSpeedStat(
+                                    value: _formatMaxSpeedStat(
                                       rideState.maxSpeedKmph,
                                     ),
                                     icon: Icons.trending_up_outlined,
