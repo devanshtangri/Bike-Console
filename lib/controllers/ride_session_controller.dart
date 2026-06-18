@@ -34,7 +34,6 @@ class RideSessionController extends ChangeNotifier {
   int? _lastAverageSpeedUpdateEpochMs;
   int? _lastConsoleSyncEpochMs;
   int? _lastIndicatorCommandEpochMs;
-  bool _autoPauseSuppressedUntilMovement = false;
 
   Timer? _durationTicker;
 
@@ -70,7 +69,6 @@ class RideSessionController extends ChangeNotifier {
       _syncConsoleStateWithApp(force: true);
     } else {
       _lastIndicatorCommandEpochMs = null;
-      _autoPauseSuppressedUntilMovement = false;
       _state = _state.copyWith(
         currentRpm: 0,
         currentSpeedKmph: 0,
@@ -165,7 +163,6 @@ class RideSessionController extends ChangeNotifier {
     _notMovingSinceEpochMs = null;
     _lastAverageSpeedUpdateEpochMs = null;
     _lastConsoleSyncEpochMs = null;
-    _autoPauseSuppressedUntilMovement = false;
 
     if (_state.rideState == RideState.running) {
       _startDurationTicker();
@@ -208,10 +205,11 @@ class RideSessionController extends ChangeNotifier {
   void handleSensorPacket(BikeSensorPacket packet) {
     final speedKmph = _speedFromRpm(packet.rpm);
     final nowEpochMs = DateTime.now().millisecondsSinceEpoch;
+    final shouldClearAutoPauseSuppression =
+        packet.isMoving && _state.autoPauseSuppressedUntilMovement;
 
     if (packet.isMoving) {
       _notMovingSinceEpochMs = null;
-      _autoPauseSuppressedUntilMovement = false;
 
       if (_state.rideState == RideState.paused &&
           _state.pauseReason == PauseReason.auto) {
@@ -282,6 +280,9 @@ class RideSessionController extends ChangeNotifier {
       currentRpm: packet.rpm,
       currentSpeedKmph: speedKmph,
       speedSource: SpeedSource.wheel,
+      autoPauseSuppressedUntilMovement: shouldClearAutoPauseSuppression
+          ? false
+          : _state.autoPauseSuppressedUntilMovement,
       distanceKm: nextDistanceKm,
       maxSpeedKmph: nextMaxSpeed,
       averageSpeedKmph: nextAverageSpeed,
@@ -434,9 +435,9 @@ class RideSessionController extends ChangeNotifier {
     _notMovingSinceEpochMs = null;
     _lastAverageSpeedUpdateEpochMs = null;
     _lastConsoleSyncEpochMs = null;
-    _autoPauseSuppressedUntilMovement = false;
 
     _state = _state.copyWith(
+      autoPauseSuppressedUntilMovement: false,
       rideState: RideState.countdown,
       pauseReason: PauseReason.none,
       clearRideStartEpochMs: true,
@@ -463,9 +464,9 @@ class RideSessionController extends ChangeNotifier {
     _notMovingSinceEpochMs = null;
     _lastAverageSpeedUpdateEpochMs = startMs;
     _lastConsoleSyncEpochMs = null;
-    _autoPauseSuppressedUntilMovement = false;
 
     _state = _state.copyWith(
+      autoPauseSuppressedUntilMovement: false,
       rideState: RideState.running,
       pauseReason: PauseReason.none,
       rideStartEpochMs: startMs,
@@ -492,9 +493,8 @@ class RideSessionController extends ChangeNotifier {
   void manualPauseRide({int? pauseEpochMs}) {
     if (_state.rideState != RideState.running) return;
 
-    _autoPauseSuppressedUntilMovement = false;
-
     _state = _state.copyWith(
+      autoPauseSuppressedUntilMovement: false,
       rideState: RideState.paused,
       pauseReason: PauseReason.manual,
       currentPauseStartEpochMs:
@@ -512,9 +512,8 @@ class RideSessionController extends ChangeNotifier {
   void autoPauseRide({int? pauseEpochMs}) {
     if (_state.rideState != RideState.running) return;
 
-    _autoPauseSuppressedUntilMovement = false;
-
     _state = _state.copyWith(
+      autoPauseSuppressedUntilMovement: false,
       rideState: RideState.paused,
       pauseReason: PauseReason.auto,
       currentPauseStartEpochMs:
@@ -541,9 +540,9 @@ class RideSessionController extends ChangeNotifier {
 
     _notMovingSinceEpochMs = null;
     _lastAverageSpeedUpdateEpochMs = now;
-    _autoPauseSuppressedUntilMovement = suppressAutoPauseUntilMovement;
 
     _state = _state.copyWith(
+      autoPauseSuppressedUntilMovement: suppressAutoPauseUntilMovement,
       rideState: RideState.running,
       pauseReason: PauseReason.none,
       clearCurrentPauseStartEpochMs: true,
@@ -598,7 +597,6 @@ class RideSessionController extends ChangeNotifier {
     _lastAverageSpeedUpdateEpochMs = null;
     _lastConsoleSyncEpochMs = null;
     _lastIndicatorCommandEpochMs = null;
-    _autoPauseSuppressedUntilMovement = false;
 
     onCommand?.call(BikeCommand.stop());
     _syncConsoleStateWithApp(force: true);
@@ -722,7 +720,7 @@ class RideSessionController extends ChangeNotifier {
     if (!_settings.autoPauseEnabled) return;
     if (_state.rideState != RideState.running) return;
 
-    if (_autoPauseSuppressedUntilMovement) {
+    if (_state.autoPauseSuppressedUntilMovement) {
       _notMovingSinceEpochMs = null;
       return;
     }

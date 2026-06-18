@@ -99,6 +99,7 @@ class RideSessionState {
     required this.currentRpm,
     required this.speedSource,
     required this.routePoints,
+    required this.autoPauseSuppressedUntilMovement,
     required this.hazardEnabled,
     required this.appLeftIndicator,
     required this.appRightIndicator,
@@ -148,6 +149,10 @@ class RideSessionState {
   /// Each point stores whether it belongs to a running or paused segment.
   final List<RideRoutePoint> routePoints;
 
+  /// When true, auto-pause is blocked until fresh movement is detected.
+  /// This preserves manual resume after auto-pause across UI recreation.
+  final bool autoPauseSuppressedUntilMovement;
+
   /// Logical app-side hazard state.
   /// This should stay true even if physical indicators temporarily override output.
   final bool hazardEnabled;
@@ -179,6 +184,7 @@ class RideSessionState {
       currentRpm: 0,
       speedSource: SpeedSource.none,
       routePoints: [],
+      autoPauseSuppressedUntilMovement: false,
       hazardEnabled: false,
       appLeftIndicator: false,
       appRightIndicator: false,
@@ -230,6 +236,7 @@ class RideSessionState {
     double? currentRpm,
     SpeedSource? speedSource,
     List<RideRoutePoint>? routePoints,
+    bool? autoPauseSuppressedUntilMovement,
     bool? hazardEnabled,
     bool? appLeftIndicator,
     bool? appRightIndicator,
@@ -255,6 +262,9 @@ class RideSessionState {
       currentRpm: currentRpm ?? this.currentRpm,
       speedSource: speedSource ?? this.speedSource,
       routePoints: routePoints ?? this.routePoints,
+      autoPauseSuppressedUntilMovement:
+          autoPauseSuppressedUntilMovement ??
+          this.autoPauseSuppressedUntilMovement,
       hazardEnabled: hazardEnabled ?? this.hazardEnabled,
       appLeftIndicator: appLeftIndicator ?? this.appLeftIndicator,
       appRightIndicator: appRightIndicator ?? this.appRightIndicator,
@@ -538,6 +548,7 @@ class PersistedRideSnapshot {
     required this.averageSpeedKmph,
     required this.maxSpeedKmph,
     required this.routePoints,
+    required this.autoPauseSuppressedUntilMovement,
     required this.hazardEnabled,
     required this.appLeftIndicator,
     required this.appRightIndicator,
@@ -552,6 +563,7 @@ class PersistedRideSnapshot {
   final double averageSpeedKmph;
   final double maxSpeedKmph;
   final List<RideRoutePoint> routePoints;
+  final bool autoPauseSuppressedUntilMovement;
   final bool hazardEnabled;
   final bool appLeftIndicator;
   final bool appRightIndicator;
@@ -567,6 +579,8 @@ class PersistedRideSnapshot {
       averageSpeedKmph: state.averageSpeedKmph,
       maxSpeedKmph: state.maxSpeedKmph,
       routePoints: state.routePoints,
+      autoPauseSuppressedUntilMovement:
+          state.autoPauseSuppressedUntilMovement,
       hazardEnabled: state.hazardEnabled,
       appLeftIndicator: state.appLeftIndicator,
       appRightIndicator: state.appRightIndicator,
@@ -586,6 +600,8 @@ class PersistedRideSnapshot {
       averageSpeedKmph: BikeSensorPacket._readDouble(json['averageSpeedKmph']),
       maxSpeedKmph: BikeSensorPacket._readDouble(json['maxSpeedKmph']),
       routePoints: _readRoutePoints(json['routePoints']),
+      autoPauseSuppressedUntilMovement:
+          json['autoPauseSuppressedUntilMovement'] == true,
       hazardEnabled: json['hazardEnabled'] == true,
       appLeftIndicator: json['appLeftIndicator'] == true,
       appRightIndicator: json['appRightIndicator'] == true,
@@ -603,6 +619,7 @@ class PersistedRideSnapshot {
       'averageSpeedKmph': averageSpeedKmph,
       'maxSpeedKmph': maxSpeedKmph,
       'routePoints': routePoints.map((point) => point.toJson()).toList(),
+      'autoPauseSuppressedUntilMovement': autoPauseSuppressedUntilMovement,
       'hazardEnabled': hazardEnabled,
       'appLeftIndicator': appLeftIndicator,
       'appRightIndicator': appRightIndicator,
@@ -620,6 +637,7 @@ class PersistedRideSnapshot {
       averageSpeedKmph: averageSpeedKmph,
       maxSpeedKmph: maxSpeedKmph,
       routePoints: routePoints,
+      autoPauseSuppressedUntilMovement: autoPauseSuppressedUntilMovement,
       hazardEnabled: hazardEnabled,
       appLeftIndicator: appLeftIndicator,
       appRightIndicator: appRightIndicator,

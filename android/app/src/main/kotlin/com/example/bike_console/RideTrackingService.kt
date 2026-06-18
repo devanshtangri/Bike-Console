@@ -14,8 +14,10 @@ import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import kotlin.math.roundToInt
 
 class RideTrackingService : Service() {
@@ -25,10 +27,20 @@ class RideTrackingService : Service() {
         const val ACTION_PAUSE = "com.example.bike_console.ride.PAUSE"
         const val ACTION_RESUME = "com.example.bike_console.ride.RESUME"
         const val ACTION_STOP = "com.example.bike_console.ride.STOP"
+        const val ACTION_SERVICE_EVENT = "com.example.bike_console.ride.SERVICE_EVENT"
 
         const val EXTRA_DISTANCE_KM = "distanceKm"
         const val EXTRA_ELAPSED_ACTIVE_MS = "elapsedActiveMs"
         const val EXTRA_PAUSED = "paused"
+        const val EXTRA_FROM_FLUTTER = "fromFlutter"
+        const val EXTRA_SERVICE_EVENT_ACTION = "serviceEventAction"
+
+        const val PENDING_PREFS = "bike_console_ride_service_pending"
+        const val PENDING_ACTION_KEY = "pendingAction"
+
+        private const val SERVICE_ACTION_PAUSE = "pause"
+        private const val SERVICE_ACTION_RESUME = "resume"
+        private const val SERVICE_ACTION_STOP = "stop"
 
         private const val CHANNEL_ID = "bike_console_active_ride"
         private const val CHANNEL_NAME = "Active ride"
@@ -37,16 +49,31 @@ class RideTrackingService : Service() {
 
     private var distanceKm: Double = 0.0
     private var elapsedActiveMs: Long = 0L
+    private var activeElapsedBaseMs: Long = 0L
+    private var activeRealtimeBaseMs: Long? = null
     private var paused: Boolean = false
     private var foregroundStarted = false
     private var nativeLocationPointCount = 0
 
     private var locationManager: LocationManager? = null
+    private val notificationHandler = Handler(Looper.getMainLooper())
+
+    private val notificationTick = object : Runnable {
+        override fun run() {
+            if (!foregroundStarted) return
+
+            updateForegroundNotification()
+
+            if (!paused) {
+                notificationHandler.postDelayed(this, 1000L)
+            }
+        }
+    }
 
     private val locationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
-            // Batch 2 intentionally only proves that native foreground GPS stays alive.
-            // Batch 3 will persist these points and sync them back into Flutter snapshots.
+            // Flutter still renders the visible route in this batch.
+            // Native route persistence will be added in the next architecture batch.
             nativeLocationPointCount += 1
         }
     }
@@ -59,15 +86,31 @@ class RideTrackingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action ?: ACTION_START
+        val fromFlutter = intent?.getBooleanExtra(EXTRA_FROM_FLUTTER, false) ?: false
 
-        updateStateFromIntent(intent)
+        if (fromFlutter || action == ACTION_START || action == ACTION_UPDATE) {
+            updateStateFromIntent(intent)
+        } else {
+            // Notification actions are handled by the already-running service.
+            // Do not trust old PendingIntent extras for elapsed time.
+            syncElapsedFromClock()
+        }
 
         when (action) {
             ACTION_START -> startRide()
             ACTION_UPDATE -> updateForegroundNotification()
-            ACTION_PAUSE -> pauseRide()
-            ACTION_RESUME -> resumeRide()
-            ACTION_STOP -> stopRide()
+            ACTION_PAUSE -> {
+                pauseRide()
+                publishServiceActionIfNeeded(SERVICE_ACTION_PAUSE, fromFlutter)
+            }
+            ACTION_RESUME -> {
+                resumeRide()
+                publishServiceActionIfNeeded(SERVICE_ACTION_RESUME, fromFlutter)
+            }
+            ACTION_STOP -> {
+                publishServiceActionIfNeeded(SERVICE_ACTION_STOP, fromFlutter)
+                stopRide()
+            }
             else -> startRide()
         }
 
@@ -77,13 +120,14 @@ class RideTrackingService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // The service is declared with stopWithTask=false. Keep the active ride service
-        // alive when the Flutter activity is removed from Recents.
+        // Keep the foreground ride alive when the Flutter activity is removed from Recents.
         updateForegroundNotification()
+        scheduleNotificationTickerIfNeeded()
         super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
+        stopNotificationTicker()
         stopLocationUpdates()
         super.onDestroy()
     }
@@ -91,38 +135,62 @@ class RideTrackingService : Service() {
     private fun updateStateFromIntent(intent: Intent?) {
         if (intent == null) return
 
+        val nextPaused = if (intent.hasExtra(EXTRA_PAUSED)) {
+            intent.getBooleanExtra(EXTRA_PAUSED, paused)
+        } else {
+            paused
+        }
+
         if (intent.hasExtra(EXTRA_DISTANCE_KM)) {
             distanceKm = intent.getDoubleExtra(EXTRA_DISTANCE_KM, distanceKm)
         }
 
         if (intent.hasExtra(EXTRA_ELAPSED_ACTIVE_MS)) {
-            elapsedActiveMs = intent.getLongExtra(EXTRA_ELAPSED_ACTIVE_MS, elapsedActiveMs)
+            elapsedActiveMs = intent.getLongExtra(
+                EXTRA_ELAPSED_ACTIVE_MS,
+                currentElapsedActiveMs(),
+            )
+        } else {
+            elapsedActiveMs = currentElapsedActiveMs()
         }
 
-        if (intent.hasExtra(EXTRA_PAUSED)) {
-            paused = intent.getBooleanExtra(EXTRA_PAUSED, paused)
-        }
+        paused = nextPaused
+        activeElapsedBaseMs = elapsedActiveMs
+        activeRealtimeBaseMs = if (paused) null else SystemClock.elapsedRealtime()
     }
 
     private fun startRide() {
         paused = false
+        activeElapsedBaseMs = elapsedActiveMs
+        activeRealtimeBaseMs = SystemClock.elapsedRealtime()
         startInForeground()
         startLocationUpdates()
+        scheduleNotificationTickerIfNeeded()
     }
 
     private fun pauseRide() {
+        elapsedActiveMs = currentElapsedActiveMs()
+        activeElapsedBaseMs = elapsedActiveMs
+        activeRealtimeBaseMs = null
         paused = true
         startInForeground()
         startLocationUpdates()
+        stopNotificationTicker()
+        updateForegroundNotification()
     }
 
     private fun resumeRide() {
         paused = false
+        activeElapsedBaseMs = elapsedActiveMs
+        activeRealtimeBaseMs = SystemClock.elapsedRealtime()
         startInForeground()
         startLocationUpdates()
+        scheduleNotificationTickerIfNeeded()
     }
 
     private fun stopRide() {
+        syncElapsedFromClock()
+        stopNotificationTicker()
         stopLocationUpdates()
         foregroundStarted = false
 
@@ -134,6 +202,26 @@ class RideTrackingService : Service() {
         }
 
         stopSelf()
+    }
+
+    private fun publishServiceActionIfNeeded(serviceAction: String, fromFlutter: Boolean) {
+        if (fromFlutter) return
+
+        savePendingAction(serviceAction)
+
+        val eventIntent = Intent(ACTION_SERVICE_EVENT).apply {
+            setPackage(packageName)
+            putExtra(EXTRA_SERVICE_EVENT_ACTION, serviceAction)
+        }
+
+        sendBroadcast(eventIntent)
+    }
+
+    private fun savePendingAction(serviceAction: String) {
+        getSharedPreferences(PENDING_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(PENDING_ACTION_KEY, serviceAction)
+            .apply()
     }
 
     private fun startInForeground() {
@@ -167,7 +255,7 @@ class RideTrackingService : Service() {
 
     private fun buildNotification(): Notification {
         val status = if (paused) "Ride paused" else "Ride active"
-        val text = "$status • ${formatDistance(distanceKm)} • ${formatElapsed(elapsedActiveMs)}"
+        val text = "$status • ${formatDistance(distanceKm)} • ${formatElapsed(currentElapsedActiveMs())}"
 
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
@@ -224,8 +312,9 @@ class RideTrackingService : Service() {
         val intent = Intent(this, RideTrackingService::class.java).apply {
             this.action = action
             putExtra(EXTRA_DISTANCE_KM, distanceKm)
-            putExtra(EXTRA_ELAPSED_ACTIVE_MS, elapsedActiveMs)
+            putExtra(EXTRA_ELAPSED_ACTIVE_MS, currentElapsedActiveMs())
             putExtra(EXTRA_PAUSED, paused)
+            putExtra(EXTRA_FROM_FLUTTER, false)
         }
 
         return PendingIntent.getService(
@@ -293,6 +382,33 @@ class RideTrackingService : Service() {
         } catch (_: SecurityException) {
             // Permission changed while service was running.
         }
+    }
+
+    private fun scheduleNotificationTickerIfNeeded() {
+        stopNotificationTicker()
+
+        if (foregroundStarted && !paused) {
+            notificationHandler.postDelayed(notificationTick, 1000L)
+        }
+    }
+
+    private fun stopNotificationTicker() {
+        notificationHandler.removeCallbacks(notificationTick)
+    }
+
+    private fun currentElapsedActiveMs(): Long {
+        if (paused) return elapsedActiveMs.coerceAtLeast(0L)
+
+        val baseRealtime = activeRealtimeBaseMs ?: return elapsedActiveMs.coerceAtLeast(0L)
+        val delta = SystemClock.elapsedRealtime() - baseRealtime
+
+        return (activeElapsedBaseMs + delta).coerceAtLeast(0L)
+    }
+
+    private fun syncElapsedFromClock() {
+        elapsedActiveMs = currentElapsedActiveMs()
+        activeElapsedBaseMs = elapsedActiveMs
+        activeRealtimeBaseMs = if (paused) null else SystemClock.elapsedRealtime()
     }
 
     private fun checkSelfPermissionCompat(permission: String): Boolean {

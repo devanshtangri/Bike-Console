@@ -10,6 +10,36 @@ class ForegroundRideService {
     'bike_console/foreground_ride_service',
   );
 
+  static const EventChannel _events = EventChannel(
+    'bike_console/foreground_ride_events',
+  );
+
+  Stream<String> notificationActions() {
+    if (!Platform.isAndroid) return const Stream.empty();
+
+    return _events.receiveBroadcastStream().where((event) {
+      return event is String && event.trim().isNotEmpty;
+    }).cast<String>();
+  }
+
+  Future<String?> consumePendingAction() async {
+    if (!Platform.isAndroid) return null;
+
+    try {
+      final value = await _channel.invokeMethod<String>('consumePendingAction');
+      if (value == null || value.trim().isEmpty) return null;
+      return value;
+    } on PlatformException catch (error) {
+      debugPrint(
+        'ForegroundRideService.consumePendingAction failed: ${error.code} ${error.message}',
+      );
+      return null;
+    } catch (error) {
+      debugPrint('ForegroundRideService.consumePendingAction failed: $error');
+      return null;
+    }
+  }
+
   Future<void> start({
     required double distanceKm,
     required int elapsedActiveMs,

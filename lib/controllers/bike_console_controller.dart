@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../models/app_settings.dart';
@@ -38,6 +40,7 @@ class BikeConsoleController extends ChangeNotifier {
   RideState _lastForegroundRideState = RideState.stopped;
   bool _foregroundRideServiceActive = false;
   int? _lastForegroundNotificationUpdateEpochMs;
+  StreamSubscription<String>? _foregroundRideActionSubscription;
 
   AppDisplaySettings get displaySettings => _displaySettings;
 
@@ -45,8 +48,12 @@ class BikeConsoleController extends ChangeNotifier {
     _displaySettings = await _appSettingsService.loadDisplaySettings();
     AppHaptics.setEnabled(_displaySettings.hapticFeedbackEnabled);
 
+    _startForegroundRideActionListener();
+
     await rideSessionController.initialize();
     await connectionController.initialize();
+    await _consumePendingForegroundRideAction();
+
     _syncForegroundRideService(force: true);
     notifyListeners();
   }
@@ -62,6 +69,44 @@ class BikeConsoleController extends ChangeNotifier {
   void _notify() {
     _syncForegroundRideService();
     notifyListeners();
+  }
+
+  void _startForegroundRideActionListener() {
+    _foregroundRideActionSubscription?.cancel();
+
+    _foregroundRideActionSubscription = _foregroundRideService
+        .notificationActions()
+        .listen(
+          _handleForegroundRideAction,
+          onError: (Object error) {
+            debugPrint('Foreground ride action listener failed: $error');
+          },
+        );
+  }
+
+  Future<void> _consumePendingForegroundRideAction() async {
+    final pendingAction = await _foregroundRideService.consumePendingAction();
+    if (pendingAction == null) return;
+
+    _handleForegroundRideAction(pendingAction);
+  }
+
+  void _handleForegroundRideAction(String action) {
+    switch (action) {
+      case 'pause':
+        rideSessionController.manualPauseRide();
+        break;
+      case 'resume':
+        rideSessionController.resumeRide(
+          suppressAutoPauseUntilMovement: true,
+        );
+        break;
+      case 'stop':
+        rideSessionController.stopRide();
+        break;
+      default:
+        debugPrint('Unknown foreground ride action: $action');
+    }
   }
 
   void _syncForegroundRideService({bool force = false}) {
@@ -155,6 +200,7 @@ class BikeConsoleController extends ChangeNotifier {
   void dispose() {
     connectionController.removeListener(_notify);
     rideSessionController.removeListener(_notify);
+    _foregroundRideActionSubscription?.cancel();
 
     connectionController.dispose();
     rideSessionController.dispose();

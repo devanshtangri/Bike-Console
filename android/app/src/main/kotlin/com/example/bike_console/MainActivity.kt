@@ -1,13 +1,33 @@
 package com.example.bike_console
 
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val rideServiceChannelName = "bike_console/foreground_ride_service"
+    private val rideServiceEventChannelName = "bike_console/foreground_ride_events"
+
+    private var rideEventSink: EventChannel.EventSink? = null
+    private var rideActionReceiverRegistered = false
+
+    private val rideActionReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != RideTrackingService.ACTION_SERVICE_EVENT) return
+
+            val serviceAction = intent.getStringExtra(
+                RideTrackingService.EXTRA_SERVICE_EVENT_ACTION,
+            ) ?: return
+
+            rideEventSink?.success(serviceAction)
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -45,6 +65,10 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
 
+                    "consumePendingAction" -> {
+                        result.success(consumePendingRideAction())
+                    }
+
                     else -> result.notImplemented()
                 }
             } catch (error: Throwable) {
@@ -55,11 +79,34 @@ class MainActivity : FlutterActivity() {
                 )
             }
         }
+
+        EventChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            rideServiceEventChannelName,
+        ).setStreamHandler(
+            object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    rideEventSink = events
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    rideEventSink = null
+                }
+            },
+        )
+
+        registerRideActionReceiver()
+    }
+
+    override fun onDestroy() {
+        unregisterRideActionReceiver()
+        super.onDestroy()
     }
 
     private fun dispatchRideServiceAction(action: String, args: Map<*, *>?) {
         val intent = Intent(this, RideTrackingService::class.java).apply {
             this.action = action
+            putExtra(RideTrackingService.EXTRA_FROM_FLUTTER, true)
             putExtra(
                 RideTrackingService.EXTRA_DISTANCE_KM,
                 readDouble(args?.get("distanceKm")),
@@ -81,6 +128,56 @@ class MainActivity : FlutterActivity() {
         } else {
             startService(intent)
         }
+    }
+
+    private fun registerRideActionReceiver() {
+        if (rideActionReceiverRegistered) return
+
+        val filter = IntentFilter(RideTrackingService.ACTION_SERVICE_EVENT)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(
+                rideActionReceiver,
+                filter,
+                Context.RECEIVER_NOT_EXPORTED,
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(rideActionReceiver, filter)
+        }
+
+        rideActionReceiverRegistered = true
+    }
+
+    private fun unregisterRideActionReceiver() {
+        if (!rideActionReceiverRegistered) return
+
+        try {
+            unregisterReceiver(rideActionReceiver)
+        } catch (_: IllegalArgumentException) {
+            // Already unregistered by the framework.
+        }
+
+        rideActionReceiverRegistered = false
+        rideEventSink = null
+    }
+
+    private fun consumePendingRideAction(): String? {
+        val prefs = getSharedPreferences(
+            RideTrackingService.PENDING_PREFS,
+            Context.MODE_PRIVATE,
+        )
+
+        val pendingAction = prefs.getString(
+            RideTrackingService.PENDING_ACTION_KEY,
+            null,
+        )
+
+        if (pendingAction != null) {
+            prefs.edit().remove(RideTrackingService.PENDING_ACTION_KEY).apply()
+        }
+
+        return pendingAction
     }
 
     private fun readDouble(value: Any?): Double {
