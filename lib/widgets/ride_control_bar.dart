@@ -339,34 +339,39 @@ class _RideControlBarState extends State<RideControlBar>
             ),
 
             Positioned(
-              top: 8,
-              right: 10,
+              top: 0,
+              bottom: 0,
+              right: 0,
+              width: 58,
               child: IgnorePointer(
                 ignoring: !isPaused,
-                child: AnimatedOpacity(
-                  opacity: isPaused ? 1 : 0,
-                  duration: const Duration(milliseconds: 520),
-                  curve: Curves.easeInOutCubic,
-                  child: AnimatedScale(
-                    scale: isPaused ? 1 : 0.82,
-                    duration: const Duration(milliseconds: 560),
-                    curve: Curves.easeOutCubic,
-                    child: GestureDetector(
-                      onTap: () {
-                        AppHaptics.mediumImpact();
-                        _showStopConfirmation(context);
-                      },
-                      child: Container(
-                        width: 38,
-                        height: 38,
-                        decoration: BoxDecoration(
-                          color: Colors.redAccent,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                          Icons.stop_rounded,
-                          color: Colors.white,
-                          size: 24,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    AppHaptics.mediumImpact();
+                    _showStopConfirmation(context);
+                  },
+                  child: AnimatedOpacity(
+                    opacity: isPaused ? 1 : 0,
+                    duration: const Duration(milliseconds: 520),
+                    curve: Curves.easeInOutCubic,
+                    child: Center(
+                      child: AnimatedScale(
+                        scale: isPaused ? 1 : 0.82,
+                        duration: const Duration(milliseconds: 560),
+                        curve: Curves.easeOutCubic,
+                        child: Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: Colors.redAccent,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(
+                            Icons.stop_rounded,
+                            color: Colors.white,
+                            size: 24,
+                          ),
                         ),
                       ),
                     ),
