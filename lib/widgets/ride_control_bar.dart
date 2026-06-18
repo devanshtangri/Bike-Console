@@ -102,8 +102,6 @@ class _RideControlBarState extends State<RideControlBar>
   void _handleStartTap() {
     if (_startVisualPrimed) return;
 
-    AppHaptics.mediumImpact();
-
     setState(() {
       _startVisualPrimed = true;
     });
