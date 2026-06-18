@@ -15,6 +15,8 @@ class RideControlBar extends StatefulWidget {
     required this.onPause,
     required this.onResume,
     required this.onStop,
+    this.onBlockedStart,
+    this.blockedStartLabel = "Pair a Console",
   });
 
   final RideState rideState;
@@ -24,6 +26,8 @@ class RideControlBar extends StatefulWidget {
   final VoidCallback onPause;
   final VoidCallback onResume;
   final VoidCallback onStop;
+  final VoidCallback? onBlockedStart;
+  final String blockedStartLabel;
 
   @override
   State<RideControlBar> createState() => _RideControlBarState();
@@ -44,6 +48,8 @@ class _RideControlBarState extends State<RideControlBar>
   VoidCallback get onPause => widget.onPause;
   VoidCallback get onResume => widget.onResume;
   VoidCallback get onStop => widget.onStop;
+  VoidCallback? get onBlockedStart => widget.onBlockedStart;
+  String get blockedStartLabel => widget.blockedStartLabel;
 
   bool get _isStopped => rideState == RideState.stopped;
   bool get _isRunning => rideState == RideState.running;
@@ -96,6 +102,13 @@ class _RideControlBarState extends State<RideControlBar>
 
   void _handleBlockedStartTap() {
     AppHaptics.mediumImpact();
+
+    final handler = onBlockedStart;
+    if (handler != null) {
+      handler();
+      return;
+    }
+
     _blockedTapController.forward(from: 0);
   }
 
@@ -110,6 +123,18 @@ class _RideControlBarState extends State<RideControlBar>
     _startPrimeTimer = Timer(const Duration(milliseconds: 210), () {
       if (!mounted) return;
       onStart();
+
+      // Smart Start may open a setup/permission sheet instead of beginning the
+      // countdown. In that case the ride state stays stopped, so reset the
+      // temporary visual prime instead of leaving the button stuck on Starting.
+      Future.delayed(const Duration(milliseconds: 520), () {
+        if (!mounted) return;
+        if (rideState == RideState.stopped && _startVisualPrimed) {
+          setState(() {
+            _startVisualPrimed = false;
+          });
+        }
+      });
     });
   }
 
@@ -400,7 +425,7 @@ class _RideControlBarState extends State<RideControlBar>
         : Icons.pause_rounded;
 
     final label = isBlockedStart
-        ? "Connect a Console"
+        ? blockedStartLabel
         : isStarting
         ? "Starting"
         : isStart

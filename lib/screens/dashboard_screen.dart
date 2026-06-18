@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../bike_data.dart';
@@ -15,7 +16,9 @@ import '../widgets/ride_control_bar.dart';
 import '../widgets/speed_console_panel.dart';
 import 'settings_screen.dart';
 import 'sessions_screen.dart';
+import 'scan_for_devices_screen.dart';
 import '../services/app_haptics.dart';
+import '../services/ride_start_gate_service.dart';
 import '../theme/app_colors.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -31,6 +34,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   late final VoidCallback bikeListener;
   late final MapTrackingController _mapTrackingController;
+  final RideStartGateService _rideStartGateService = const RideStartGateService();
   late final AnimationController _recenterPulseController;
   late final Animation<double> _recenterPulseAnimation;
 
@@ -113,6 +117,124 @@ class _DashboardScreenState extends State<DashboardScreen>
     final rideController = widget.bikeConsoleController.rideSessionController;
     rideController.handleRoutePoint(point);
     rideController.handleGpsFallbackPoint(point);
+  }
+
+  String _blockedStartLabel() {
+    final connection = widget.bikeConsoleController.connectionController;
+
+    if (!connection.hasSavedConsole) {
+      return "Pair a Console";
+    }
+
+    if (!connection.isConnected) {
+      return "Connect Console";
+    }
+
+    return "Set Up Ride";
+  }
+
+  Future<void> _handleSmartStart() async {
+    final readiness = await _rideStartGateService.check(
+      widget.bikeConsoleController,
+    );
+
+    if (!mounted) return;
+
+    if (readiness.canStart) {
+      await _startRideWithCountdown();
+      return;
+    }
+
+    AppHaptics.mediumImpact();
+
+    final action = await _showRideSetupSheet(readiness);
+    if (action == null || !mounted) return;
+
+    await _handleRideSetupAction(action);
+  }
+
+  Future<void> _handleRideSetupAction(RideStartRequirement requirement) async {
+    final opensExternalSettings =
+        requirement == RideStartRequirement.locationServices;
+
+    switch (requirement) {
+      case RideStartRequirement.locationPermission:
+        final openedSettings = await _rideStartGateService
+            .requestLocationPermission();
+        if (openedSettings) return;
+        break;
+      case RideStartRequirement.locationServices:
+        await _rideStartGateService.openLocationSettings();
+        break;
+      case RideStartRequirement.notificationPermission:
+        await _rideStartGateService.requestNotificationPermission();
+        break;
+      case RideStartRequirement.bluetoothPermissions:
+        await _rideStartGateService.requestBluetoothPermissions();
+        break;
+      case RideStartRequirement.bluetoothPower:
+        await _rideStartGateService.requestBluetoothPower();
+        break;
+      case RideStartRequirement.pairConsole:
+        final BluetoothDevice? selected = await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const ScanForDevicesScreen()),
+        );
+
+        if (selected != null) {
+          await widget.bikeConsoleController.connectionController
+              .pairWithDevice(selected);
+        }
+        break;
+      case RideStartRequirement.connectConsole:
+        await widget.bikeConsoleController.connectionController.reconnectNow();
+        break;
+    }
+
+    if (!mounted) return;
+
+    // Opening Android location settings is outside Flutter's control and may
+    // return before the user actually changes anything. Close the sheet and let
+    // the user press Start again after returning, instead of trapping the UI in
+    // a stale setup sheet or Starting state.
+    if (opensExternalSettings) {
+      return;
+    }
+
+    // Let permission dialogs, Bluetooth state, and BLE callbacks settle before
+    // deciding whether to start or show the next missing setup item.
+    await Future.delayed(const Duration(milliseconds: 650));
+
+    if (!mounted) return;
+
+    final nextReadiness = await _rideStartGateService.check(
+      widget.bikeConsoleController,
+    );
+
+    if (!mounted) return;
+
+    if (nextReadiness.canStart) {
+      await _startRideWithCountdown();
+      return;
+    }
+
+    final nextAction = await _showRideSetupSheet(nextReadiness);
+    if (nextAction == null || !mounted) return;
+
+    await _handleRideSetupAction(nextAction);
+  }
+
+  Future<RideStartRequirement?> _showRideSetupSheet(
+    RideStartReadiness readiness,
+  ) {
+    return showModalBottomSheet<RideStartRequirement>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return _RideSetupSheet(readiness: readiness);
+      },
+    );
   }
 
   Future<void> _startRideWithCountdown() async {
@@ -738,7 +860,9 @@ class _DashboardScreenState extends State<DashboardScreen>
                               .bikeConsoleController
                               .rideSessionController
                               .formattedActiveDuration(),
-                          onStart: _startRideWithCountdown,
+                          onStart: _handleSmartStart,
+                          onBlockedStart: _handleSmartStart,
+                          blockedStartLabel: _blockedStartLabel(),
                           onPause: widget
                               .bikeConsoleController
                               .rideSessionController
@@ -757,6 +881,216 @@ class _DashboardScreenState extends State<DashboardScreen>
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _RideSetupSheet extends StatelessWidget {
+  const _RideSetupSheet({required this.readiness});
+
+  final RideStartReadiness readiness;
+
+  @override
+  Widget build(BuildContext context) {
+    final missingItems = readiness.missingItems;
+    final firstMissing = missingItems.isNotEmpty ? missingItems.first : null;
+
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 12,
+          right: 12,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 12,
+        ),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
+          decoration: BoxDecoration(
+            color: const Color(0xFF121212),
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.55),
+                blurRadius: 28,
+                offset: const Offset(0, 16),
+              ),
+            ],
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.22),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: AppColors.premiumGreen.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(
+                          color: AppColors.premiumGreen.withValues(alpha: 0.24),
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.directions_bike_rounded,
+                        color: AppColors.premiumGreen,
+                        size: 25,
+                      ),
+                    ),
+                    const SizedBox(width: 13),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "Ready to Ride",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 21,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          SizedBox(height: 3),
+                          Text(
+                            "Finish these one-time setup checks before starting.",
+                            style: TextStyle(
+                              color: Colors.white38,
+                              fontSize: 12.5,
+                              height: 1.25,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                for (final item in readiness.items) ...[
+                  _RideSetupStepTile(
+                    item: item,
+                    isPrimaryAction: item == firstMissing,
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                const SizedBox(height: 4),
+                SizedBox(
+                  height: 50,
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: firstMissing == null
+                        ? () => Navigator.pop(context)
+                        : () => Navigator.pop(context, firstMissing.requirement),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: firstMissing == null
+                          ? AppColors.premiumGreen
+                          : Colors.white,
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(17),
+                      ),
+                    ),
+                    child: Text(
+                      firstMissing?.actionLabel ?? "Done",
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RideSetupStepTile extends StatelessWidget {
+  const _RideSetupStepTile({
+    required this.item,
+    required this.isPrimaryAction,
+  });
+
+  final RideStartGateItem item;
+  final bool isPrimaryAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final complete = item.isComplete;
+
+    return Container(
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: complete
+            ? AppColors.premiumGreen.withValues(alpha: 0.08)
+            : Colors.white.withValues(alpha: isPrimaryAction ? 0.075 : 0.045),
+        borderRadius: BorderRadius.circular(19),
+        border: Border.all(
+          color: complete
+              ? AppColors.premiumGreen.withValues(alpha: 0.24)
+              : Colors.white.withValues(alpha: isPrimaryAction ? 0.16 : 0.08),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: complete
+                  ? AppColors.premiumGreen
+                  : Colors.white.withValues(alpha: 0.09),
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: Icon(
+              complete ? Icons.check_rounded : Icons.arrow_forward_rounded,
+              color: complete ? Colors.black : Colors.white70,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.title,
+                  style: TextStyle(
+                    color: complete
+                        ? Colors.white
+                        : Colors.white.withValues(alpha: 0.92),
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  item.description,
+                  style: const TextStyle(
+                    color: Colors.white38,
+                    fontSize: 12.2,
+                    height: 1.28,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
