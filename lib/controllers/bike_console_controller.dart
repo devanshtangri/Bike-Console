@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../models/app_settings.dart';
+import '../services/app_haptics.dart';
 import '../services/app_settings_service.dart';
 import 'bike_connection_controller.dart';
 import 'ride_session_controller.dart';
@@ -32,6 +33,8 @@ class BikeConsoleController extends ChangeNotifier {
 
   Future<void> initialize() async {
     _displaySettings = await _appSettingsService.loadDisplaySettings();
+    AppHaptics.setEnabled(_displaySettings.hapticFeedbackEnabled);
+
     await rideSessionController.initialize();
     await connectionController.initialize();
     notifyListeners();
@@ -39,34 +42,10 @@ class BikeConsoleController extends ChangeNotifier {
 
   Future<void> updateDisplaySettings(AppDisplaySettings nextSettings) async {
     _displaySettings = nextSettings;
+    AppHaptics.setEnabled(nextSettings.hapticFeedbackEnabled);
     notifyListeners();
 
     await _appSettingsService.saveDisplaySettings(nextSettings);
-  }
-
-  void injectDebugSensorPacket({
-    double rpm = 90,
-    double distanceKm = 0.25,
-    bool isMoving = true,
-    bool leftPhysical = false,
-    bool rightPhysical = false,
-    bool hazardOutput = false,
-    bool consoleRideActive = true,
-  }) {
-    final raw =
-        '''
-{
-  "rpm": $rpm,
-  "distance": $distanceKm,
-  "moving": $isMoving,
-  "leftPhysical": $leftPhysical,
-  "rightPhysical": $rightPhysical,
-  "hazardOutput": $hazardOutput,
-  "consoleActive": $consoleRideActive
-}
-''';
-
-    connectionController.handleIncomingJson(raw);
   }
 
   void _notify() {

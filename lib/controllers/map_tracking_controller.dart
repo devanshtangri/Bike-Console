@@ -17,7 +17,9 @@ class MapTrackingController extends ChangeNotifier {
   // timer looked stepped/jittery even though the GPS data itself was fine.
   static const Duration _followCameraTickInterval = Duration(milliseconds: 16);
   static const double _followCameraTargetLerp = 0.14;
+  static const double _followCameraBearingLerp = 0.16;
   static const double _followCameraSettleDistanceMeters = 0.12;
+  static const double _followCameraBearingSettleDegrees = 0.35;
   static const double _followCameraSnapDistanceMeters = 180.0;
 
   GoogleMapController? _mapController;
@@ -26,6 +28,7 @@ class MapTrackingController extends ChangeNotifier {
   LatLng? _currentLatLng;
   LatLng? _previousLatLngForBearing;
   double _currentHeading = 0;
+  double _displayHeading = 0;
   bool _hasReliableHeading = false;
   bool _hasCenteredOnStartup = false;
 
@@ -45,6 +48,7 @@ class MapTrackingController extends ChangeNotifier {
 
   BitmapDescriptor? _currentLocationIcon;
   final List<LatLng> _routePoints = [];
+  bool _trailRecordingEnabled = false;
 
   bool _disposed = false;
 
@@ -63,7 +67,7 @@ class MapTrackingController extends ChangeNotifier {
             _currentLocationIcon ??
             BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
         anchor: const Offset(0.5, 0.67),
-        rotation: _currentHeading,
+        rotation: _displayHeading,
         flat: true,
         zIndexInt: 10,
       ),
@@ -72,7 +76,7 @@ class MapTrackingController extends ChangeNotifier {
 
 
   Set<Polyline> get polylines {
-    if (_routePoints.length < 2) {
+    if (!_trailRecordingEnabled || _routePoints.length < 2) {
       return {};
     }
 
@@ -86,6 +90,22 @@ class MapTrackingController extends ChangeNotifier {
         geodesic: true,
       ),
     };
+  }
+
+
+  void setTrailRecordingEnabled(bool enabled) {
+    if (_trailRecordingEnabled == enabled) {
+      return;
+    }
+
+    _trailRecordingEnabled = enabled;
+    _routePoints.clear();
+
+    if (enabled && _currentLatLng != null) {
+      _routePoints.add(_currentLatLng!);
+    }
+
+    notifyListeners();
   }
 
   Future<void> initialize() async {
@@ -185,6 +205,7 @@ class MapTrackingController extends ChangeNotifier {
     _desiredFollowCameraBearing = _currentHeading;
     _visualFollowCameraTarget = target;
     _visualFollowCameraBearing = _currentHeading;
+    _displayHeading = _currentHeading;
 
     final cameraUpdate = CameraUpdate.newCameraPosition(
       CameraPosition(
@@ -312,12 +333,23 @@ class MapTrackingController extends ChangeNotifier {
               _followCameraTargetLerp,
             );
 
-      // Keep the movement direction accurate while only smoothing the camera
-      // position. This prevents the navigation view from pointing late.
-      final nextBearing = desiredBearing;
+      final currentBearing = _visualFollowCameraBearing ?? desiredBearing;
+      final bearingToDesired = _bearingDifference(
+        currentBearing,
+        desiredBearing,
+      );
+
+      final nextBearing = bearingToDesired.abs() <=
+              _followCameraBearingSettleDegrees
+          ? desiredBearing
+          : _normalizeBearing(
+              currentBearing +
+                  (bearingToDesired * _followCameraBearingLerp),
+            );
 
       _visualFollowCameraTarget = nextTarget;
       _visualFollowCameraBearing = nextBearing;
+      _displayHeading = nextBearing;
 
       _ignoreProgrammaticCameraMoveStartedFor(
         const Duration(milliseconds: 90),
@@ -334,6 +366,8 @@ class MapTrackingController extends ChangeNotifier {
         ),
       );
 
+      notifyListeners();
+
       final remainingDistance = Geolocator.distanceBetween(
         nextTarget.latitude,
         nextTarget.longitude,
@@ -347,9 +381,10 @@ class MapTrackingController extends ChangeNotifier {
       ).abs();
 
       if (remainingDistance <= _followCameraSettleDistanceMeters &&
-          remainingBearing <= 0.5) {
+          remainingBearing <= _followCameraBearingSettleDegrees) {
         _visualFollowCameraTarget = desiredTarget;
         _visualFollowCameraBearing = desiredBearing;
+        _displayHeading = desiredBearing;
         _stopFollowCameraTimer();
       }
     } finally {
@@ -381,9 +416,10 @@ class MapTrackingController extends ChangeNotifier {
 
     _positionSubscription =
         Geolocator.getPositionStream(
-          locationSettings: const LocationSettings(
+          locationSettings: AndroidSettings(
             accuracy: LocationAccuracy.high,
-            distanceFilter: 2,
+            distanceFilter: 0,
+            intervalDuration: Duration(seconds: 1),
           ),
         ).listen((position) async {
           final nextPoint = LatLng(position.latitude, position.longitude);
@@ -391,8 +427,13 @@ class MapTrackingController extends ChangeNotifier {
           _updateHeadingFromPosition(position, nextPoint);
           _currentLatLng = nextPoint;
 
-          if (_routePoints.isEmpty || _routePoints.last != nextPoint) {
+          if (_trailRecordingEnabled &&
+              (_routePoints.isEmpty || _routePoints.last != nextPoint)) {
             _routePoints.add(nextPoint);
+          }
+
+          if (!_followUser) {
+            _displayHeading = _currentHeading;
           }
 
           notifyListeners();

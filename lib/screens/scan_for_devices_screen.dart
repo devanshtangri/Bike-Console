@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
+import '../services/app_haptics.dart';
+
 class ScanForDevicesScreen extends StatefulWidget {
   const ScanForDevicesScreen({super.key});
 
@@ -75,6 +77,7 @@ class _ScanForDevicesScreenState extends State<ScanForDevicesScreen> {
                     subtitle: Text("RSSI: ${result.rssi} dBm"),
                     trailing: const Icon(Icons.bluetooth),
                     onTap: () {
+                      AppHaptics.selectionClick();
                       Navigator.pop(context, result.device);
                     },
                   ),

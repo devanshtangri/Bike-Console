@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/saved_ride_session.dart';
+import '../services/app_haptics.dart';
 import '../services/ride_history_service.dart';
 
 class SessionsScreen extends StatefulWidget {
@@ -51,6 +52,8 @@ class _SessionsScreenState extends State<SessionsScreen> {
   void _toggleSelectionMode() {
     if (!_hasSessions) return;
 
+    AppHaptics.selectionClick();
+
     setState(() {
       _selectionModeEnabled = !_selectionModeEnabled;
 
@@ -63,6 +66,8 @@ class _SessionsScreenState extends State<SessionsScreen> {
   void _selectAll() {
     if (!_hasSessions) return;
 
+    AppHaptics.selectionClick();
+
     setState(() {
       _selectionModeEnabled = true;
       _selectedSessionIds
@@ -73,6 +78,8 @@ class _SessionsScreenState extends State<SessionsScreen> {
 
   Future<void> _confirmDeleteSelected() async {
     if (!_hasSelection) return;
+
+    AppHaptics.mediumImpact();
 
     final selectedCount = _selectedSessionIds.length;
 
@@ -102,14 +109,20 @@ class _SessionsScreenState extends State<SessionsScreen> {
           actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
+              onPressed: () {
+                AppHaptics.selectionClick();
+                Navigator.of(dialogContext).pop(false);
+              },
               child: const Text(
                 "Cancel",
                 style: TextStyle(color: Colors.white70),
               ),
             ),
             TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
+              onPressed: () {
+                AppHaptics.mediumImpact();
+                Navigator.of(dialogContext).pop(true);
+              },
               child: const Text(
                 "Delete",
                 style: TextStyle(
@@ -278,6 +291,8 @@ class _SessionsScreenState extends State<SessionsScreen> {
                             selectionModeEnabled: _selectionModeEnabled,
                             selected: selected,
                             onTap: () {
+                              AppHaptics.selectionClick();
+
                               if (!_selectionModeEnabled) {
                                 _showSessionDetails(session);
                                 return;
@@ -292,6 +307,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
                               });
                             },
                             onLongPress: () {
+                              AppHaptics.mediumImpact();
                               setState(() {
                                 _selectionModeEnabled = true;
                                 _selectedSessionIds.add(session.id);

@@ -2,6 +2,8 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import '../services/app_haptics.dart';
+
 class SpeedConsolePanel extends StatefulWidget {
   final double speedKmph;
   final bool hazardEnabled;
@@ -78,6 +80,21 @@ class _SpeedConsolePanelState extends State<SpeedConsolePanel>
     super.dispose();
   }
 
+  void _handleLeftArrowTap() {
+    AppHaptics.selectionClick();
+    widget.onLeftArrowTap();
+  }
+
+  void _handleRightArrowTap() {
+    AppHaptics.selectionClick();
+    widget.onRightArrowTap();
+  }
+
+  void _handleHazardTap() {
+    AppHaptics.mediumImpact();
+    widget.onHazardTap();
+  }
+
   Widget _buildPanelContent(bool blinkOn) {
     return CustomPaint(
       foregroundPainter: DashboardPanelBorderPainter(),
@@ -95,7 +112,7 @@ class _SpeedConsolePanelState extends State<SpeedConsolePanel>
               Expanded(
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: widget.controlsEnabled ? widget.onLeftArrowTap : null,
+                  onTap: widget.controlsEnabled ? _handleLeftArrowTap : null,
                   child: Center(
                     child: _IndicatorIcon(
                       icon: Icons.arrow_back,
@@ -115,7 +132,7 @@ class _SpeedConsolePanelState extends State<SpeedConsolePanel>
                 flex: 2,
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: widget.onHazardTap,
+                  onTap: _handleHazardTap,
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -146,7 +163,7 @@ class _SpeedConsolePanelState extends State<SpeedConsolePanel>
               Expanded(
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: widget.controlsEnabled ? widget.onRightArrowTap : null,
+                  onTap: widget.controlsEnabled ? _handleRightArrowTap : null,
                   child: Center(
                     child: _IndicatorIcon(
                       icon: Icons.arrow_forward,
@@ -166,7 +183,7 @@ class _SpeedConsolePanelState extends State<SpeedConsolePanel>
 
   @override
   Widget build(BuildContext context) {
-    final hazardTapHandler = widget.onHazardTap;
+    final hazardTapHandler = _handleHazardTap;
 
     return AnimatedBuilder(
       animation: _blinkController,

@@ -14,8 +14,8 @@ import '../widgets/ride_control_bar.dart';
 import '../widgets/speed_console_panel.dart';
 import 'settings_screen.dart';
 import 'sessions_screen.dart';
+import '../services/app_haptics.dart';
 import '../theme/app_colors.dart';
-import 'package:flutter/services.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key, required this.bikeConsoleController});
@@ -43,6 +43,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     WidgetsBinding.instance.addObserver(this);
 
     bikeListener = () {
+      _syncMapTrailRecordingState();
+
       if (mounted) {
         setState(() {});
       }
@@ -60,6 +62,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       ),
     );
     _mapTrackingController = MapTrackingController();
+    _syncMapTrailRecordingState();
     _mapTrackingController.addListener(_onMapTrackingChanged);
     _mapTrackingController.initialize();
 
@@ -84,6 +87,23 @@ class _DashboardScreenState extends State<DashboardScreen>
   void _onMapTrackingChanged() {
     if (!mounted) return;
     setState(() {});
+  }
+
+  void _syncMapTrailRecordingState() {
+    final rideStateName = widget
+        .bikeConsoleController
+        .rideSessionController
+        .state
+        .rideState
+        .name;
+
+    final isRideActive = rideStateName == "running" || rideStateName == "paused";
+    final isConsoleConnected =
+        widget.bikeConsoleController.connectionController.isConnected;
+
+    _mapTrackingController.setTrailRecordingEnabled(
+      isRideActive && isConsoleConnected,
+    );
   }
 
   Future<void> _startRideWithCountdown() async {
@@ -119,6 +139,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     if (!mounted) return;
 
+    AppHaptics.mediumImpact();
     rideController.finishCountdownAndStartRide();
   }
 
@@ -139,7 +160,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _forceConsoleReconnect() async {
-    HapticFeedback.selectionClick();
+    AppHaptics.selectionClick();
 
     setState(() {
       _manualReconnectPulse = true;
@@ -152,6 +173,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     setState(() {
       _manualReconnectPulse = false;
     });
+  }
+
+  Future<void> _recenterMap() async {
+    AppHaptics.selectionClick();
+    await _mapTrackingController.recenter();
   }
 
   void _stopRide() {
@@ -392,6 +418,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     children: [
                       _HeaderSessionsButton(
                         onTap: () {
+                          AppHaptics.selectionClick();
                           Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -403,6 +430,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                       const SizedBox(width: 16),
                       HexSettingsButton(
                         onTap: () {
+                          AppHaptics.selectionClick();
                           Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -489,7 +517,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                         top: 14,
                         right: 26,
                         child: GestureDetector(
-                          onTap: _mapTrackingController.recenter,
+                          onTap: _recenterMap,
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(18),
                             child: liteMode

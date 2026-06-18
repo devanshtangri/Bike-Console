@@ -1,9 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-
 import '../models/ride_models.dart';
+import '../services/app_haptics.dart';
 import '../theme/app_colors.dart';
 
 class RideControlBar extends StatefulWidget {
@@ -96,12 +95,14 @@ class _RideControlBarState extends State<RideControlBar>
   }
 
   void _handleBlockedStartTap() {
-    HapticFeedback.mediumImpact();
+    AppHaptics.mediumImpact();
     _blockedTapController.forward(from: 0);
   }
 
   void _handleStartTap() {
     if (_startVisualPrimed) return;
+
+    AppHaptics.mediumImpact();
 
     setState(() {
       _startVisualPrimed = true;
@@ -131,6 +132,7 @@ class _RideControlBarState extends State<RideControlBar>
           actions: [
             TextButton(
               onPressed: () {
+                AppHaptics.selectionClick();
                 Navigator.pop(context, false);
               },
               child: const Text(
@@ -140,6 +142,7 @@ class _RideControlBarState extends State<RideControlBar>
             ),
             TextButton(
               onPressed: () {
+                AppHaptics.mediumImpact();
                 Navigator.pop(context, true);
               },
               child: const Text(
@@ -269,8 +272,10 @@ class _RideControlBarState extends State<RideControlBar>
                         if (_isStopped) {
                           _handleStartTap();
                         } else if (_isRunning) {
+                          AppHaptics.selectionClick();
                           onPause();
                         } else if (_isPaused) {
+                          AppHaptics.selectionClick();
                           onResume();
                         }
                       },
@@ -349,7 +354,10 @@ class _RideControlBarState extends State<RideControlBar>
                     duration: const Duration(milliseconds: 560),
                     curve: Curves.easeOutCubic,
                     child: GestureDetector(
-                      onTap: () => _showStopConfirmation(context),
+                      onTap: () {
+                        AppHaptics.mediumImpact();
+                        _showStopConfirmation(context);
+                      },
                       child: Container(
                         width: 38,
                         height: 38,
@@ -398,18 +406,14 @@ class _RideControlBarState extends State<RideControlBar>
         ? "Resume"
         : "Pause";
 
-    final leadingWidgets = icon == null
-        ? <Widget>[]
-        : <Widget>[
-            Icon(icon, color: Colors.black, size: isStart ? 28 : 24),
-            SizedBox(width: isStart ? 8 : 6),
-          ];
-
     return Row(
       key: ValueKey(label),
       mainAxisSize: MainAxisSize.min,
       children: [
-        ...leadingWidgets,
+        if (icon != null) ...[
+          Icon(icon, color: Colors.black, size: isStart ? 28 : 24),
+          SizedBox(width: isStart ? 8 : 6),
+        ],
         Text(
           label,
           style: TextStyle(

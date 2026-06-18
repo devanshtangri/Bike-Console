@@ -4,6 +4,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../controllers/bike_console_controller.dart';
 import '../models/ride_models.dart';
+import '../services/app_haptics.dart';
 import 'scan_for_devices_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -26,6 +27,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       widget.bikeConsoleController.rideSessionController.settings;
   bool get _liteModeEnabled =>
       widget.bikeConsoleController.displaySettings.liteModeEnabled;
+  bool get _hapticFeedbackEnabled =>
+      widget.bikeConsoleController.displaySettings.hapticFeedbackEnabled;
 
   @override
   void initState() {
@@ -58,6 +61,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _saveRideSettings() async {
+    AppHaptics.selectionClick();
+
     final circumferenceText = _circumferenceController.text.trim();
     final autoPauseSecondsText = _autoPauseSecondsController.text.trim();
 
@@ -112,6 +117,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _setLiteModeEnabled(bool value) async {
+    AppHaptics.selectionClick();
+
     await widget.bikeConsoleController.updateDisplaySettings(
       widget.bikeConsoleController.displaySettings.copyWith(
         liteModeEnabled: value,
@@ -123,6 +130,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _showSnackBar(value ? "Lite Mode enabled" : "Lite Mode disabled");
   }
 
+  Future<void> _setHapticFeedbackEnabled(bool value) async {
+    if (_hapticFeedbackEnabled) {
+      AppHaptics.selectionClick();
+    }
+
+    await widget.bikeConsoleController.updateDisplaySettings(
+      widget.bikeConsoleController.displaySettings.copyWith(
+        hapticFeedbackEnabled: value,
+      ),
+    );
+
+    if (!mounted) return;
+
+    _showSnackBar(
+      value ? "Haptic feedback enabled" : "Haptic feedback disabled",
+    );
+  }
+
 
   bool get _rideDataEditingAvailable {
     final rideState = widget.bikeConsoleController.rideSessionController.state;
@@ -132,6 +157,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _showEditRideDataSheet() async {
+    AppHaptics.selectionClick();
+
     final rideController = widget.bikeConsoleController.rideSessionController;
     final rideState = rideController.state;
 
@@ -340,6 +367,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             height: 48,
                             child: OutlinedButton(
                               onPressed: () {
+                                AppHaptics.selectionClick();
                                 Navigator.pop(sheetContext);
                               },
                               style: OutlinedButton.styleFrom(
@@ -361,6 +389,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             height: 48,
                             child: ElevatedButton(
                               onPressed: () {
+                                AppHaptics.selectionClick();
+
                                 final distance = double.tryParse(
                                   distanceController.text.trim(),
                                 );
@@ -472,6 +502,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _pairDevice() async {
+    AppHaptics.selectionClick();
+
     final BluetoothDevice? selected = await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const ScanForDevicesScreen()),
@@ -487,6 +519,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _forgetDevice() async {
+    AppHaptics.mediumImpact();
+
     await widget.bikeConsoleController.connectionController.forgetConsole();
 
     if (mounted) setState(() {});
@@ -596,6 +630,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   style: TextStyle(color: Colors.white38),
                 ),
                 onChanged: (value) {
+                  AppHaptics.selectionClick();
                   setState(() {
                     _autoPauseEnabled = value;
                   });
@@ -700,8 +735,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
           const SizedBox(height: 16),
           _SettingsCard(
-            title: "Display & Performance",
+            title: "App Settings",
             children: [
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: _hapticFeedbackEnabled,
+                activeThumbColor: Colors.greenAccent,
+                activeTrackColor: Colors.greenAccent.withValues(alpha: 0.35),
+                title: const Text(
+                  "Haptic Feedback",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                subtitle: const Text(
+                  "Enable vibration feedback for buttons and controls.",
+                  style: TextStyle(color: Colors.white38, height: 1.35),
+                ),
+                onChanged: _setHapticFeedbackEnabled,
+              ),
+              const SizedBox(height: 2),
               SwitchListTile.adaptive(
                 contentPadding: EdgeInsets.zero,
                 value: _liteModeEnabled,
