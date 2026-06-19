@@ -206,6 +206,14 @@ class MapTrackingController extends ChangeNotifier {
       return;
     }
 
+    _disableFollowModeFromUserGesture();
+  }
+
+  void onUserTouchedMap() {
+    _disableFollowModeFromUserGesture();
+  }
+
+  void _disableFollowModeFromUserGesture() {
     if (!_followUser) {
       return;
     }

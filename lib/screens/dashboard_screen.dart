@@ -38,8 +38,12 @@ class _DashboardScreenState extends State<DashboardScreen>
   late final AnimationController _recenterPulseController;
   late final Animation<double> _recenterPulseAnimation;
 
+  static const double _mapDragDisableFollowThresholdPx = 8.0;
+
   int? _countdownValue;
   bool _manualReconnectPulse = false;
+  Offset? _mapPointerDownPosition;
+  bool _mapPointerDragConsumed = false;
 
   @override
   void initState() {
@@ -315,6 +319,33 @@ class _DashboardScreenState extends State<DashboardScreen>
   Future<void> _recenterMap() async {
     AppHaptics.selectionClick();
     await _mapTrackingController.recenter();
+  }
+
+  void _handleMapPointerDown(PointerDownEvent event) {
+    _mapPointerDownPosition = event.position;
+    _mapPointerDragConsumed = false;
+  }
+
+  void _handleMapPointerMove(PointerMoveEvent event) {
+    final startPosition = _mapPointerDownPosition;
+
+    if (startPosition == null || _mapPointerDragConsumed) {
+      return;
+    }
+
+    final dragDistance = (event.position - startPosition).distance;
+
+    if (dragDistance < _mapDragDisableFollowThresholdPx) {
+      return;
+    }
+
+    _mapPointerDragConsumed = true;
+    _mapTrackingController.onUserTouchedMap();
+  }
+
+  void _handleMapPointerEnd(PointerEvent event) {
+    _mapPointerDownPosition = null;
+    _mapPointerDragConsumed = false;
   }
 
   void _stopRide() {
@@ -618,30 +649,37 @@ class _DashboardScreenState extends State<DashboardScreen>
                           borderRadius: const BorderRadius.vertical(
                             top: Radius.circular(24),
                           ),
-                          child: GoogleMap(
-                            initialCameraPosition: const CameraPosition(
-                              target: LatLng(28.6139, 77.2090),
-                              zoom: MapTrackingController.navigationMapZoom,
-                              tilt: MapTrackingController.navigationMapTilt,
+                          child: Listener(
+                            behavior: HitTestBehavior.translucent,
+                            onPointerDown: _handleMapPointerDown,
+                            onPointerMove: _handleMapPointerMove,
+                            onPointerUp: _handleMapPointerEnd,
+                            onPointerCancel: _handleMapPointerEnd,
+                            child: GoogleMap(
+                              initialCameraPosition: const CameraPosition(
+                                target: LatLng(28.6139, 77.2090),
+                                zoom: MapTrackingController.navigationMapZoom,
+                                tilt: MapTrackingController.navigationMapTilt,
+                              ),
+                              onMapCreated: (controller) {
+                                _mapTrackingController.attachMapController(
+                                  controller,
+                                );
+                              },
+                              style: darkMapStyle,
+                              onCameraMoveStarted: () {
+                                _mapTrackingController.onUserMovedMap();
+                              },
+                              myLocationEnabled: false,
+                              myLocationButtonEnabled: false,
+                              zoomControlsEnabled: false,
+                              compassEnabled: false,
+                              rotateGesturesEnabled: true,
+                              tiltGesturesEnabled: true,
+                              padding: const EdgeInsets.only(bottom: 115),
+                              markers: _mapTrackingController.markers,
+                              polylines: _mapTrackingController.polylines,
                             ),
-                            onMapCreated: (controller) {
-                              _mapTrackingController.attachMapController(
-                                controller,
-                              );
-                            },
-                            style: darkMapStyle,
-                            onCameraMoveStarted: () {
-                              _mapTrackingController.onUserMovedMap();
-                            },
-                            myLocationEnabled: false,
-                            myLocationButtonEnabled: false,
-                            zoomControlsEnabled: false,
-                            compassEnabled: false,
-                            rotateGesturesEnabled: true,
-                            tiltGesturesEnabled: true,
-                            padding: const EdgeInsets.only(bottom: 115),
-                            markers: _mapTrackingController.markers,
-                            polylines: _mapTrackingController.polylines,
                           ),
                         ),
                       ),
