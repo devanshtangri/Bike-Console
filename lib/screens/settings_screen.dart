@@ -172,10 +172,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       text: rideState.distanceKm.toStringAsFixed(2),
     );
 
-    final averageSpeedController = TextEditingController(
-      text: rideState.averageSpeedKmph.toStringAsFixed(1),
-    );
-
     final maxSpeedController = TextEditingController(
       text: rideState.maxSpeedKmph.toStringAsFixed(1),
     );
@@ -192,7 +188,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       text: (totalSeconds % 60).toString(),
     );
 
-    var saved = false;
+    double? editedDistanceKm;
+    double? editedMaxSpeedKmph;
+    int? editedActiveDurationMs;
+
+    final validationMessage = ValueNotifier<String?>(null);
 
     await showModalBottomSheet<void>(
       context: context,
@@ -295,28 +295,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       decimal: true,
                     ),
                     const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _RideDataInputField(
-                            label: "Average Speed",
-                            controller: averageSpeedController,
-                            suffixText: "km/h",
-                            hintText: "0.0",
-                            decimal: true,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _RideDataInputField(
-                            label: "Max Speed",
-                            controller: maxSpeedController,
-                            suffixText: "km/h",
-                            hintText: "0.0",
-                            decimal: true,
-                          ),
-                        ),
-                      ],
+                    _RideDataInputField(
+                      label: "Max Speed",
+                      controller: maxSpeedController,
+                      suffixText: "km/h",
+                      hintText: "0.0",
+                      decimal: true,
                     ),
                     const SizedBox(height: 18),
                     const Text(
@@ -359,6 +343,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ],
                     ),
                     const SizedBox(height: 22),
+                    ValueListenableBuilder<String?>(
+                      valueListenable: validationMessage,
+                      builder: (context, message, _) {
+                        if (message == null) {
+                          return const SizedBox.shrink();
+                        }
+
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.redAccent.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: Colors.redAccent.withValues(alpha: 0.35),
+                              ),
+                            ),
+                            child: Text(
+                              message,
+                              style: const TextStyle(
+                                color: Colors.redAccent,
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                                height: 1.3,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
                     Row(
                       children: [
                         Expanded(
@@ -394,10 +413,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   distanceController.text.trim(),
                                 );
 
-                                final averageSpeed = double.tryParse(
-                                  averageSpeedController.text.trim(),
-                                );
-
                                 final maxSpeed = double.tryParse(
                                   maxSpeedController.text.trim(),
                                 );
@@ -416,8 +431,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                                 if (distance == null ||
                                     distance < 0 ||
-                                    averageSpeed == null ||
-                                    averageSpeed < 0 ||
                                     maxSpeed == null ||
                                     maxSpeed < 0 ||
                                     hours == null ||
@@ -428,29 +441,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     seconds == null ||
                                     seconds < 0 ||
                                     seconds > 59) {
-                                  _showSnackBar("Enter valid ride data");
+                                  validationMessage.value =
+                                      "Enter valid ride data";
                                   return;
                                 }
 
-                                if (maxSpeed < averageSpeed) {
-                                  _showSnackBar(
-                                    "Max speed should be at least average speed",
-                                  );
+                                final currentSpeedKmph =
+                                    rideController.state.currentSpeedKmph;
+
+                                if (maxSpeed + 0.05 < currentSpeedKmph) {
+                                  validationMessage.value =
+                                      "Max speed cannot be below the current "
+                                      "speed (${currentSpeedKmph.toStringAsFixed(1)} km/h)";
                                   return;
                                 }
+
+                                validationMessage.value = null;
 
                                 final activeDurationMs =
                                     (((hours * 60) + minutes) * 60 + seconds) *
                                     1000;
 
-                                rideController.editCurrentRideData(
-                                  distanceKm: distance,
-                                  averageSpeedKmph: averageSpeed,
-                                  maxSpeedKmph: maxSpeed,
-                                  activeDurationMs: activeDurationMs,
-                                );
+                                editedDistanceKm = distance;
+                                editedMaxSpeedKmph = maxSpeed;
+                                editedActiveDurationMs = activeDurationMs;
 
-                                saved = true;
                                 Navigator.pop(sheetContext);
                               },
                               style: ElevatedButton.styleFrom(
@@ -478,14 +493,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
       },
     );
 
-    distanceController.dispose();
-    averageSpeedController.dispose();
-    maxSpeedController.dispose();
-    hoursController.dispose();
-    minutesController.dispose();
-    secondsController.dispose();
+    if (!mounted ||
+        editedDistanceKm == null ||
+        editedMaxSpeedKmph == null ||
+        editedActiveDurationMs == null) {
+      return;
+    }
 
-    if (!mounted || !saved) return;
+    // Let the bottom sheet route finish disposal before notifying controllers.
+    await Future<void>.delayed(Duration.zero);
+
+    if (!mounted) return;
+
+    rideController.editCurrentRideData(
+      distanceKm: editedDistanceKm!,
+      maxSpeedKmph: editedMaxSpeedKmph!,
+      activeDurationMs: editedActiveDurationMs!,
+    );
+
+    if (!mounted) return;
 
     _showSnackBar("Ride data updated");
   }

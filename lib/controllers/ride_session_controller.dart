@@ -31,6 +31,11 @@ class RideSessionController extends ChangeNotifier {
   static const double _gpsFallbackMaxReasonableSpeedKmph = 85.0;
   static const int _gpsFallbackStaleMs = 2500;
   static const int _gpsFallbackDisplayGraceMs = 3500;
+  static const int _gpsFallbackSpeedHoldMs = 3000;
+  static const double _distanceToleranceKm = 0.003;
+  static const double _distanceJumpGraceKm = 0.03;
+  static const double _maxPlausibleDistanceSpeedKmph = 95.0;
+  static const int _manualDistanceCorrectionHoldMs = 7000;
 
 
   RideSessionState _state = RideSessionState.initial();
@@ -45,7 +50,12 @@ class RideSessionController extends ChangeNotifier {
   RideRoutePoint? _lastGpsFallbackDistancePoint;
   int? _lastGpsFallbackPointEpochMs;
   int? _lastGpsFallbackMotionEpochMs;
+  int? _lastGpsFallbackValidSpeedEpochMs;
   double _lastGpsFallbackDisplaySpeedKmph = 0.0;
+  double? _lastAcceptedWheelDistanceKm;
+  int? _lastAcceptedWheelDistanceEpochMs;
+  double? _manualDistanceCorrectionKm;
+  int? _manualDistanceCorrectionEpochMs;
 
   Timer? _durationTicker;
 
@@ -115,7 +125,6 @@ class RideSessionController extends ChangeNotifier {
 
   void editCurrentRideData({
     required double distanceKm,
-    required double averageSpeedKmph,
     required double maxSpeedKmph,
     required int activeDurationMs,
   }) {
@@ -126,22 +135,29 @@ class RideSessionController extends ChangeNotifier {
 
     final nowEpochMs = DateTime.now().millisecondsSinceEpoch;
 
-    final safeDistanceKm = distanceKm.isFinite && distanceKm >= 0
+    final rawSafeDistanceKm = distanceKm.isFinite && distanceKm >= 0
         ? distanceKm
         : _state.distanceKm;
 
-    final safeAverageSpeedKmph =
-        averageSpeedKmph.isFinite && averageSpeedKmph >= 0
-        ? averageSpeedKmph
-        : _state.averageSpeedKmph;
-
     final safeMaxSpeedKmph = maxSpeedKmph.isFinite && maxSpeedKmph >= 0
-        ? maxSpeedKmph
+        ? math.max(maxSpeedKmph, _state.currentSpeedKmph)
         : _state.maxSpeedKmph;
 
     final safeActiveDurationMs = activeDurationMs
         .clamp(0, 99 * 60 * 60 * 1000)
         .toInt();
+
+    final safeDistanceKm = _manualCorrectionDistanceIsPlausible(
+      distanceKm: rawSafeDistanceKm,
+      activeDurationMs: safeActiveDurationMs,
+    )
+        ? rawSafeDistanceKm
+        : _state.distanceKm;
+
+    final recalculatedAverageSpeedKmph = _calculatedAverageSpeedKmph(
+      distanceKm: safeDistanceKm,
+      activeDurationMs: safeActiveDurationMs,
+    );
 
     final currentPauseDurationMs =
         _state.isPaused && _state.currentPauseStartEpochMs != null
@@ -157,13 +173,19 @@ class RideSessionController extends ChangeNotifier {
       rideStartEpochMs: nextRideStartEpochMs,
       accumulatedPausedMs: 0,
       distanceKm: safeDistanceKm,
-      averageSpeedKmph: safeAverageSpeedKmph,
+      averageSpeedKmph: recalculatedAverageSpeedKmph,
       maxSpeedKmph: safeMaxSpeedKmph,
     );
+
+    _manualDistanceCorrectionKm = safeDistanceKm;
+    _manualDistanceCorrectionEpochMs = nowEpochMs;
+    _lastAcceptedWheelDistanceKm = safeDistanceKm;
+    _lastAcceptedWheelDistanceEpochMs = nowEpochMs;
 
     _lastAverageSpeedUpdateEpochMs = nowEpochMs;
     _lastSnapshotSaveEpochMs = null;
 
+    onCommand?.call(BikeCommand.setDistance(safeDistanceKm));
     _syncConsoleStateWithApp(force: true);
     _persistSnapshotFireAndForget(force: true);
     notifyListeners();
@@ -180,7 +202,12 @@ class RideSessionController extends ChangeNotifier {
         : null;
     _lastGpsFallbackPointEpochMs = _lastGpsFallbackDistancePoint?.timestampMs;
     _lastGpsFallbackMotionEpochMs = _lastGpsFallbackPointEpochMs;
+    _lastGpsFallbackValidSpeedEpochMs = null;
     _lastGpsFallbackDisplaySpeedKmph = 0.0;
+    _lastAcceptedWheelDistanceKm = _state.distanceKm;
+    _lastAcceptedWheelDistanceEpochMs = DateTime.now().millisecondsSinceEpoch;
+    _manualDistanceCorrectionKm = null;
+    _manualDistanceCorrectionEpochMs = null;
 
     if (_state.rideState == RideState.running) {
       _startDurationTicker();
@@ -205,9 +232,10 @@ class RideSessionController extends ChangeNotifier {
         ? snapshotRoutePoints
         : currentRoutePoints;
 
-    final nextDistanceKm = snapshotState.distanceKm > _state.distanceKm
-        ? snapshotState.distanceKm
-        : _state.distanceKm;
+    final nextDistanceKm = _resolveForegroundSnapshotDistance(
+      snapshotState.distanceKm,
+      DateTime.now().millisecondsSinceEpoch,
+    );
 
     _state = _state.copyWith(
       rideState: snapshotState.rideState,
@@ -232,7 +260,10 @@ class RideSessionController extends ChangeNotifier {
         : null;
     _lastGpsFallbackPointEpochMs = _lastGpsFallbackDistancePoint?.timestampMs;
     _lastGpsFallbackMotionEpochMs = _lastGpsFallbackPointEpochMs;
+    _lastGpsFallbackValidSpeedEpochMs = null;
     _lastGpsFallbackDisplaySpeedKmph = 0.0;
+    _lastAcceptedWheelDistanceKm = nextDistanceKm;
+    _lastAcceptedWheelDistanceEpochMs = DateTime.now().millisecondsSinceEpoch;
 
     if (_state.rideState == RideState.running) {
       _startDurationTicker();
@@ -293,16 +324,14 @@ class RideSessionController extends ChangeNotifier {
     _lastGpsFallbackPointEpochMs = nowEpochMs;
 
     var deltaMeters = 0.0;
+    var rawDeltaMeters = 0.0;
     var impliedSpeedKmph = 0.0;
 
     if (lastPoint != null && lastPoint.isValid) {
       final elapsedMs = point.timestampMs - lastPoint.timestampMs;
 
       if (elapsedMs > 0) {
-        final rawDeltaMeters = _distanceBetweenRoutePointsMeters(
-          lastPoint,
-          point,
-        );
+        rawDeltaMeters = _distanceBetweenRoutePointsMeters(lastPoint, point);
         impliedSpeedKmph = rawDeltaMeters / (elapsedMs / 1000.0) * 3.6;
 
         if (rawDeltaMeters >= _gpsFallbackMinDistanceMeters &&
@@ -316,9 +345,20 @@ class RideSessionController extends ChangeNotifier {
         ? point.gpsSpeedMps
         : 0.0;
 
-    final rawFallbackSpeedKmph = gpsSpeedMps > 0
-        ? gpsSpeedMps * 3.6
-        : impliedSpeedKmph;
+    final reportedGpsSpeedKmph = gpsSpeedMps * 3.6;
+    final hasPlausibleReportedSpeed =
+        reportedGpsSpeedKmph >= _gpsFallbackMinMovingSpeedMps * 3.6 &&
+        reportedGpsSpeedKmph <= _gpsFallbackMaxReasonableSpeedKmph;
+    final hasPlausibleDeltaSpeed =
+        rawDeltaMeters >= 0.6 &&
+        impliedSpeedKmph > 0 &&
+        impliedSpeedKmph <= _gpsFallbackMaxReasonableSpeedKmph;
+
+    final rawFallbackSpeedKmph = hasPlausibleReportedSpeed
+        ? reportedGpsSpeedKmph
+        : hasPlausibleDeltaSpeed
+        ? impliedSpeedKmph
+        : 0.0;
 
     final candidateFallbackSpeedKmph = rawFallbackSpeedKmph.isFinite
         ? rawFallbackSpeedKmph.clamp(0.0, _gpsFallbackMaxReasonableSpeedKmph)
@@ -326,7 +366,11 @@ class RideSessionController extends ChangeNotifier {
         : 0.0;
 
     final gpsMoving =
-        gpsSpeedMps >= _gpsFallbackMinMovingSpeedMps || deltaMeters > 0;
+        hasPlausibleReportedSpeed || hasPlausibleDeltaSpeed || deltaMeters > 0;
+
+    if (gpsMoving) {
+      _lastGpsFallbackMotionEpochMs = nowEpochMs;
+    }
 
     final fallbackSpeedKmph = _stableGpsFallbackDisplaySpeedKmph(
       candidateFallbackSpeedKmph,
@@ -340,7 +384,6 @@ class RideSessionController extends ChangeNotifier {
         gpsMoving && _state.autoPauseSuppressedUntilMovement;
 
     if (gpsMoving) {
-      _lastGpsFallbackMotionEpochMs = nowEpochMs;
       _notMovingSinceEpochMs = null;
 
       if (_state.rideState == RideState.paused &&
@@ -383,8 +426,10 @@ class RideSessionController extends ChangeNotifier {
     var nextAverageSpeed = _state.averageSpeedKmph;
 
     if (activeDurationMs > 0) {
-      final calculatedAverageSpeed =
-          nextDistanceKm / (activeDurationMs / 3600000.0);
+      final calculatedAverageSpeed = _calculatedAverageSpeedKmph(
+        distanceKm: nextDistanceKm,
+        activeDurationMs: activeDurationMs,
+      );
 
       final shouldRefreshAverage =
           _lastAverageSpeedUpdateEpochMs == null ||
@@ -437,17 +482,20 @@ class RideSessionController extends ChangeNotifier {
         ? speedKmph
         : _state.maxSpeedKmph;
 
-    final nextDistanceKm = _state.isRideActive
-        ? _largerDistance(_state.distanceKm, packet.distanceKm)
-        : 0.0;
+    final nextDistanceKm = _resolveConsolePacketDistance(
+      packet,
+      nowEpochMs,
+    );
 
     final activeDurationMs = calculateActiveDurationMs(nowEpochMs: nowEpochMs);
 
     var nextAverageSpeed = _state.averageSpeedKmph;
 
     if (_state.rideState == RideState.running && activeDurationMs > 0) {
-      final calculatedAverageSpeed =
-          nextDistanceKm / (activeDurationMs / 3600000.0);
+      final calculatedAverageSpeed = _calculatedAverageSpeedKmph(
+        distanceKm: nextDistanceKm,
+        activeDurationMs: activeDurationMs,
+      );
 
       final shouldRefreshAverage =
           _lastAverageSpeedUpdateEpochMs == null ||
@@ -464,9 +512,6 @@ class RideSessionController extends ChangeNotifier {
       nextAverageSpeed = 0.0;
       _lastAverageSpeedUpdateEpochMs = null;
     }
-
-    final espDistanceWasLower =
-        _state.isRideActive && packet.distanceKm + 0.00001 < nextDistanceKm;
 
     final physicalIndicatorActive = packet.leftPhysical || packet.rightPhysical;
 
@@ -515,10 +560,6 @@ class RideSessionController extends ChangeNotifier {
           ? _state.appRightIndicator
           : packet.appRight,
     );
-
-    if (espDistanceWasLower) {
-      _syncConsoleStateWithApp();
-    }
 
     _persistSnapshotFireAndForget();
     notifyListeners();
@@ -664,6 +705,8 @@ class RideSessionController extends ChangeNotifier {
       rightOutputActive: false,
     );
 
+    _resetDistanceAuthorityTracking(distanceKm: 0, epochMs: DateTime.now().millisecondsSinceEpoch);
+
     _persistSnapshotFireAndForget(force: true);
     notifyListeners();
   }
@@ -690,6 +733,8 @@ class RideSessionController extends ChangeNotifier {
       maxSpeedKmph: 0,
       routePoints: const [],
     );
+
+    _resetDistanceAuthorityTracking(distanceKm: 0, epochMs: startMs);
 
     onCommand?.call(
       BikeCommand.start(
@@ -811,6 +856,7 @@ class RideSessionController extends ChangeNotifier {
     _lastConsoleSyncEpochMs = null;
     _lastIndicatorCommandEpochMs = null;
     _resetGpsFallbackTracking();
+    _resetDistanceAuthorityTracking(distanceKm: 0, epochMs: endEpochMs);
 
     onCommand?.call(BikeCommand.stop());
     _syncConsoleStateWithApp(force: true);
@@ -953,12 +999,165 @@ class RideSessionController extends ChangeNotifier {
     }
   }
 
-  double _largerDistance(double appDistanceKm, double espDistanceKm) {
-    if (espDistanceKm > appDistanceKm) {
-      return espDistanceKm;
+  double _resolveConsolePacketDistance(
+    BikeSensorPacket packet,
+    int nowEpochMs,
+  ) {
+    if (!_state.isRideActive) {
+      _resetDistanceAuthorityTracking(distanceKm: 0, epochMs: nowEpochMs);
+      return 0.0;
     }
 
-    return appDistanceKm;
+    final incomingDistanceKm = packet.distanceKm;
+
+    if (!incomingDistanceKm.isFinite || incomingDistanceKm < 0) {
+      return _state.distanceKm;
+    }
+
+    final manualCorrectionEpochMs = _manualDistanceCorrectionEpochMs;
+    final manualCorrectionKm = _manualDistanceCorrectionKm;
+    final manualCorrectionActive =
+        manualCorrectionEpochMs != null &&
+        manualCorrectionKm != null &&
+        nowEpochMs - manualCorrectionEpochMs <= _manualDistanceCorrectionHoldMs;
+
+    if (manualCorrectionActive &&
+        (incomingDistanceKm - manualCorrectionKm).abs() > _distanceToleranceKm) {
+      onCommand?.call(BikeCommand.setDistance(manualCorrectionKm));
+      _syncConsoleStateWithApp(force: true);
+      return manualCorrectionKm;
+    }
+
+    if (manualCorrectionActive &&
+        (incomingDistanceKm - manualCorrectionKm).abs() <= _distanceToleranceKm) {
+      _manualDistanceCorrectionKm = null;
+      _manualDistanceCorrectionEpochMs = null;
+    }
+
+    if (incomingDistanceKm + _distanceToleranceKm < _state.distanceKm) {
+      _syncConsoleStateWithApp();
+      return _state.distanceKm;
+    }
+
+    if (!_distanceIncreaseIsPlausible(
+      currentDistanceKm: _state.distanceKm,
+      incomingDistanceKm: incomingDistanceKm,
+      nowEpochMs: nowEpochMs,
+    )) {
+      _syncConsoleStateWithApp(force: true);
+      return _state.distanceKm;
+    }
+
+    final resolvedDistanceKm = incomingDistanceKm > _state.distanceKm
+        ? incomingDistanceKm
+        : _state.distanceKm;
+
+    _lastAcceptedWheelDistanceKm = resolvedDistanceKm;
+    _lastAcceptedWheelDistanceEpochMs = nowEpochMs;
+
+    return resolvedDistanceKm;
+  }
+
+  double _resolveForegroundSnapshotDistance(
+    double snapshotDistanceKm,
+    int nowEpochMs,
+  ) {
+    if (!snapshotDistanceKm.isFinite || snapshotDistanceKm < 0) {
+      return _state.distanceKm;
+    }
+
+    if (snapshotDistanceKm <= _state.distanceKm + _distanceToleranceKm) {
+      return _state.distanceKm;
+    }
+
+    if (!_distanceIncreaseIsPlausible(
+      currentDistanceKm: _state.distanceKm,
+      incomingDistanceKm: snapshotDistanceKm,
+      nowEpochMs: nowEpochMs,
+    )) {
+      return _state.distanceKm;
+    }
+
+    return snapshotDistanceKm;
+  }
+
+  bool _distanceIncreaseIsPlausible({
+    required double currentDistanceKm,
+    required double incomingDistanceKm,
+    required int nowEpochMs,
+  }) {
+    if (incomingDistanceKm <= currentDistanceKm + _distanceToleranceKm) {
+      return true;
+    }
+
+    final activeDurationMs = calculateActiveDurationMs(nowEpochMs: nowEpochMs);
+
+    if (activeDurationMs > 0) {
+      final maxTotalDistanceKm =
+          (_maxPlausibleDistanceSpeedKmph * activeDurationMs / 3600000.0) +
+          0.5;
+
+      if (incomingDistanceKm > maxTotalDistanceKm) {
+        return false;
+      }
+    }
+
+    final lastDistanceKm = _lastAcceptedWheelDistanceKm;
+    final lastEpochMs = _lastAcceptedWheelDistanceEpochMs;
+
+    if (lastDistanceKm == null || lastEpochMs == null) {
+      return true;
+    }
+
+    final elapsedMs = (nowEpochMs - lastEpochMs).clamp(1000, 15000).toInt();
+    final baselineKm = math.max(currentDistanceKm, lastDistanceKm);
+    final deltaKm = incomingDistanceKm - baselineKm;
+
+    if (deltaKm <= _distanceToleranceKm) {
+      return true;
+    }
+
+    final maxDeltaKm =
+        (_maxPlausibleDistanceSpeedKmph * elapsedMs / 3600000.0) +
+        _distanceJumpGraceKm;
+
+    return deltaKm <= maxDeltaKm;
+  }
+
+  bool _manualCorrectionDistanceIsPlausible({
+    required double distanceKm,
+    required int activeDurationMs,
+  }) {
+    if (!distanceKm.isFinite || distanceKm < 0) return false;
+    if (distanceKm <= _distanceToleranceKm) return true;
+
+    if (activeDurationMs <= 0) {
+      return distanceKm <= _distanceJumpGraceKm;
+    }
+
+    final maxDistanceKm =
+        (_maxPlausibleDistanceSpeedKmph * activeDurationMs / 3600000.0) +
+        0.5;
+
+    return distanceKm <= maxDistanceKm;
+  }
+
+  double _calculatedAverageSpeedKmph({
+    required double distanceKm,
+    required int activeDurationMs,
+  }) {
+    if (activeDurationMs <= 0) return 0.0;
+    return distanceKm / (activeDurationMs / 3600000.0);
+  }
+
+  void _resetDistanceAuthorityTracking({
+    required double distanceKm,
+    required int epochMs,
+  }) {
+    _lastAcceptedWheelDistanceKm = distanceKm;
+    _lastAcceptedWheelDistanceEpochMs = epochMs;
+    _manualDistanceCorrectionKm = null;
+    _manualDistanceCorrectionEpochMs = null;
   }
 
   double _distanceBetweenRoutePointsMeters(
@@ -1035,7 +1234,15 @@ class RideSessionController extends ChangeNotifier {
   }) {
     if (candidateSpeedKmph > 0) {
       _lastGpsFallbackDisplaySpeedKmph = candidateSpeedKmph;
+      _lastGpsFallbackValidSpeedEpochMs = nowEpochMs;
       return candidateSpeedKmph;
+    }
+
+    final lastValidSpeedEpochMs = _lastGpsFallbackValidSpeedEpochMs;
+
+    if (lastValidSpeedEpochMs != null &&
+        nowEpochMs - lastValidSpeedEpochMs <= _gpsFallbackSpeedHoldMs) {
+      return _lastGpsFallbackDisplaySpeedKmph;
     }
 
     final lastMotionEpochMs = _lastGpsFallbackMotionEpochMs;
@@ -1047,6 +1254,7 @@ class RideSessionController extends ChangeNotifier {
     }
 
     _lastGpsFallbackDisplaySpeedKmph = 0.0;
+    _lastGpsFallbackValidSpeedEpochMs = null;
     return 0.0;
   }
 
@@ -1054,6 +1262,7 @@ class RideSessionController extends ChangeNotifier {
     _lastGpsFallbackDistancePoint = null;
     _lastGpsFallbackPointEpochMs = null;
     _lastGpsFallbackMotionEpochMs = null;
+    _lastGpsFallbackValidSpeedEpochMs = null;
     _lastGpsFallbackDisplaySpeedKmph = 0.0;
   }
 

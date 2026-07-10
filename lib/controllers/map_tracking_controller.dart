@@ -27,6 +27,9 @@ class MapTrackingController extends ChangeNotifier {
   static const double _followCameraSettleDistanceMeters = 0.12;
   static const double _followCameraBearingSettleDegrees = 0.35;
   static const double _followCameraSnapDistanceMeters = 180.0;
+  static const int _maxRoutePolylineGapMs = 45000;
+  static const double _maxRoutePolylineSpeedKmph = 95.0;
+  static const double _maxRoutePolylineJumpMeters = 280.0;
 
   final void Function(RideRoutePoint point)? onRoutePoint;
   final RideRouteMode Function()? rideRouteModeProvider;
@@ -88,18 +91,45 @@ class MapTrackingController extends ChangeNotifier {
       return {};
     }
 
+    final safePoints = _routePoints
+        .where((point) => point.isValid)
+        .toList(growable: false);
+
+    if (safePoints.length < 2) {
+      return {};
+    }
+
     final result = <Polyline>{};
     var segmentIndex = 0;
-    var currentMode = _routePoints.first.rideMode;
-    var currentSegment = <LatLng>[
-      _toLatLng(_routePoints.first),
-    ];
+    var previousPoint = safePoints.first;
+    var currentMode = previousPoint.rideMode;
+    var currentSegment = <LatLng>[_toLatLng(previousPoint)];
 
-    for (var index = 1; index < _routePoints.length; index++) {
-      final point = _routePoints[index];
+    for (var index = 1; index < safePoints.length; index++) {
+      final point = safePoints[index];
       final latLng = _toLatLng(point);
+      final shouldBreakLine = _shouldBreakPolyline(previousPoint, point);
+      final modeChanged = point.rideMode != currentMode;
 
-      if (point.rideMode != currentMode && currentSegment.length >= 2) {
+      if (shouldBreakLine) {
+        if (currentSegment.length >= 2) {
+          result.add(
+            _buildSegmentPolyline(
+              id: 'ride_trail_$segmentIndex',
+              mode: currentMode,
+              points: currentSegment,
+            ),
+          );
+          segmentIndex++;
+        }
+
+        currentMode = point.rideMode;
+        currentSegment = [latLng];
+        previousPoint = point;
+        continue;
+      }
+
+      if (modeChanged && currentSegment.length >= 2) {
         result.add(
           _buildSegmentPolyline(
             id: 'ride_trail_$segmentIndex',
@@ -108,12 +138,14 @@ class MapTrackingController extends ChangeNotifier {
           ),
         );
         segmentIndex++;
-        currentSegment = [currentSegment.last, latLng];
+        currentSegment = [_toLatLng(previousPoint), latLng];
         currentMode = point.rideMode;
       } else {
         currentSegment.add(latLng);
         currentMode = point.rideMode;
       }
+
+      previousPoint = point;
     }
 
     if (currentSegment.length >= 2) {
@@ -160,11 +192,13 @@ class MapTrackingController extends ChangeNotifier {
   }
 
   void setRoutePoints(List<RideRoutePoint> routePoints) {
-    if (_sameRoutePointList(_routePoints, routePoints)) {
+    final normalizedRoutePoints = _normalizedRoutePoints(routePoints);
+
+    if (_sameRoutePointList(_routePoints, normalizedRoutePoints)) {
       return;
     }
 
-    _routePoints = List<RideRoutePoint>.unmodifiable(routePoints);
+    _routePoints = List<RideRoutePoint>.unmodifiable(normalizedRoutePoints);
     notifyListeners();
   }
 
@@ -183,6 +217,63 @@ class MapTrackingController extends ChangeNotifier {
         currentLast.longitude == nextLast.longitude &&
         currentLast.rideMode == nextLast.rideMode &&
         currentLast.timestampMs == nextLast.timestampMs;
+  }
+
+  List<RideRoutePoint> _normalizedRoutePoints(
+    List<RideRoutePoint> routePoints,
+  ) {
+    final validPoints = routePoints
+        .where((point) => point.isValid)
+        .toList(growable: false);
+
+    if (validPoints.length < 2) return validPoints;
+
+    final sortedPoints = [...validPoints]
+      ..sort((a, b) => a.timestampMs.compareTo(b.timestampMs));
+
+    final seen = <String>{};
+    final normalized = <RideRoutePoint>[];
+
+    for (final point in sortedPoints) {
+      final key = '${point.timestampMs}:'
+          '${point.latitude.toStringAsFixed(7)}:'
+          '${point.longitude.toStringAsFixed(7)}:'
+          '${point.rideMode.name}:'
+          '${point.source.name}';
+
+      if (seen.add(key)) {
+        normalized.add(point);
+      }
+    }
+
+    return normalized;
+  }
+
+  bool _shouldBreakPolyline(RideRoutePoint from, RideRoutePoint to) {
+    final distanceMeters = Geolocator.distanceBetween(
+      from.latitude,
+      from.longitude,
+      to.latitude,
+      to.longitude,
+    );
+
+    if (distanceMeters >= _maxRoutePolylineJumpMeters) {
+      return true;
+    }
+
+    final elapsedMs = to.timestampMs - from.timestampMs;
+
+    if (elapsedMs <= 0) {
+      return elapsedMs < 0;
+    }
+
+    if (elapsedMs >= _maxRoutePolylineGapMs) {
+      return true;
+    }
+
+    final impliedSpeedKmph = distanceMeters / (elapsedMs / 1000.0) * 3.6;
+
+    return distanceMeters > 10 && impliedSpeedKmph > _maxRoutePolylineSpeedKmph;
   }
 
   Future<void> initialize() async {
