@@ -1,23 +1,24 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import 'ble_service.dart';
 import 'controllers/bike_console_controller.dart';
 import 'screens/dashboard_screen.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await BleService.instance.init();
-
   final bikeConsoleController = BikeConsoleController();
-  await bikeConsoleController.initialize();
 
   runApp(
     BikeConsoleApp(
       bikeConsoleController: bikeConsoleController,
     ),
   );
+
+  // Storage restoration and BLE reconnection must not delay the first frame.
+  unawaited(bikeConsoleController.initialize());
 }
 
 class BikeConsoleApp extends StatelessWidget {

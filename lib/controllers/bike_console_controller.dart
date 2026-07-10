@@ -45,18 +45,35 @@ class BikeConsoleController extends ChangeNotifier {
   AppDisplaySettings get displaySettings => _displaySettings;
 
   Future<void> initialize() async {
-    _displaySettings = await _appSettingsService.loadDisplaySettings();
-    AppHaptics.setEnabled(_displaySettings.hapticFeedbackEnabled);
+    try {
+      _displaySettings = await _appSettingsService.loadDisplaySettings();
+      AppHaptics.setEnabled(_displaySettings.hapticFeedbackEnabled);
 
-    _startForegroundRideActionListener();
+      _startForegroundRideActionListener();
 
-    await rideSessionController.initialize();
-    await _restoreForegroundRideSnapshotIfAvailable();
-    await connectionController.initialize();
-    await _consumePendingForegroundRideAction();
+      await rideSessionController.initialize();
+      await _restoreForegroundRideSnapshotIfAvailable();
+      await _consumePendingForegroundRideAction();
+    } catch (error, stackTrace) {
+      debugPrint('Bike Console core initialization failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
 
     _syncForegroundRideService(force: true);
     notifyListeners();
+
+    // A saved-console scan can take several seconds. It should update the
+    // connection state in the background, never hold the launch screen.
+    unawaited(_initializeConnection());
+  }
+
+  Future<void> _initializeConnection() async {
+    try {
+      await connectionController.initialize();
+    } catch (error, stackTrace) {
+      debugPrint('Bike Console connection initialization failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
   }
 
   Future<void> updateDisplaySettings(AppDisplaySettings nextSettings) async {
