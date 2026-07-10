@@ -11,12 +11,15 @@ import '../theme/app_colors.dart';
 class MapTrackingController extends ChangeNotifier {
   MapTrackingController({
     this.onRoutePoint,
+    this.onGpsPoint,
     this.rideRouteModeProvider,
   });
 
   static const double navigationMapTilt = 45.0;
   static const double navigationMapZoom = 17.45;
   static const double navigationBearingSmoothing = 1.0;
+  static const double _minimumReliableHeadingSpeedMps = 0.8;
+  static const double _minimumCoordinateBearingDistanceMeters = 4.0;
   static const double _followCameraDistanceThresholdMeters = 1.5;
   static const double _followCameraBearingThresholdDegrees = 1.0;
   // Follow camera easing runs close to display refresh. The previous 80 ms
@@ -28,10 +31,18 @@ class MapTrackingController extends ChangeNotifier {
   static const double _followCameraBearingSettleDegrees = 0.35;
   static const double _followCameraSnapDistanceMeters = 180.0;
   static const int _maxRoutePolylineGapMs = 45000;
-  static const double _maxRoutePolylineSpeedKmph = 95.0;
+  static const double _maxRoutePolylineSpeedKmph = 72.0;
   static const double _maxRoutePolylineJumpMeters = 280.0;
+  static const double _maxAcceptedRouteAccuracyMeters = 45.0;
+  static const double _minRecordedRouteStepMeters = 1.0;
+  static const int _maxRouteDuplicateHoldMs = 5000;
+  static const double _maxAcceptedRoutePointSpeedKmph = 72.0;
+  static const int _isolatedSpikeWindowMs = 4000;
+  static const double _isolatedSpikeMinLegMeters = 14.0;
+  static const double _isolatedSpikeReturnRadiusMeters = 8.0;
 
   final void Function(RideRoutePoint point)? onRoutePoint;
+  final void Function(RideRoutePoint point)? onGpsPoint;
   final RideRouteMode Function()? rideRouteModeProvider;
 
   GoogleMapController? _mapController;
@@ -246,7 +257,78 @@ class MapTrackingController extends ChangeNotifier {
       }
     }
 
-    return normalized;
+    return _removeIsolatedRouteSpikes(normalized);
+  }
+
+  List<RideRoutePoint> _removeIsolatedRouteSpikes(
+    List<RideRoutePoint> points,
+  ) {
+    if (points.length < 3) {
+      return points;
+    }
+
+    final filtered = <RideRoutePoint>[points.first];
+
+    for (var index = 1; index < points.length - 1; index++) {
+      final previous = filtered.last;
+      final candidate = points[index];
+      final next = points[index + 1];
+
+      if (_isIsolatedRouteSpike(previous, candidate, next)) {
+        continue;
+      }
+
+      filtered.add(candidate);
+    }
+
+    filtered.add(points.last);
+    return filtered;
+  }
+
+  bool _isIsolatedRouteSpike(
+    RideRoutePoint previous,
+    RideRoutePoint candidate,
+    RideRoutePoint next,
+  ) {
+    if (previous.rideMode != candidate.rideMode ||
+        candidate.rideMode != next.rideMode) {
+      return false;
+    }
+
+    final firstElapsedMs = candidate.timestampMs - previous.timestampMs;
+    final secondElapsedMs = next.timestampMs - candidate.timestampMs;
+    final totalElapsedMs = next.timestampMs - previous.timestampMs;
+
+    if (firstElapsedMs <= 0 ||
+        secondElapsedMs <= 0 ||
+        totalElapsedMs > _isolatedSpikeWindowMs) {
+      return false;
+    }
+
+    final firstLegMeters = Geolocator.distanceBetween(
+      previous.latitude,
+      previous.longitude,
+      candidate.latitude,
+      candidate.longitude,
+    );
+
+    final secondLegMeters = Geolocator.distanceBetween(
+      candidate.latitude,
+      candidate.longitude,
+      next.latitude,
+      next.longitude,
+    );
+
+    final returnDistanceMeters = Geolocator.distanceBetween(
+      previous.latitude,
+      previous.longitude,
+      next.latitude,
+      next.longitude,
+    );
+
+    return firstLegMeters >= _isolatedSpikeMinLegMeters &&
+        secondLegMeters >= _isolatedSpikeMinLegMeters &&
+        returnDistanceMeters <= _isolatedSpikeReturnRadiusMeters;
   }
 
   bool _shouldBreakPolyline(RideRoutePoint from, RideRoutePoint to) {
@@ -613,9 +695,15 @@ class MapTrackingController extends ChangeNotifier {
           source: RideRoutePointSource.gps,
         );
 
-        if (routePoint.isValid && _shouldAppendRoutePoint(routePoint)) {
-          _routePoints = [..._routePoints, routePoint];
-          onRoutePoint?.call(routePoint);
+        if (routePoint.isValid) {
+          // GPS fallback needs every valid position update, including repeated
+          // coordinates. Route storage can still apply its stricter filter.
+          onGpsPoint?.call(routePoint);
+
+          if (_shouldAppendRoutePoint(routePoint)) {
+            _routePoints = [..._routePoints, routePoint];
+            onRoutePoint?.call(routePoint);
+          }
         }
       }
 
@@ -637,30 +725,82 @@ class MapTrackingController extends ChangeNotifier {
   }
 
   bool _shouldAppendRoutePoint(RideRoutePoint point) {
+    final accuracyMeters = point.accuracyMeters;
+
+    if (accuracyMeters.isFinite &&
+        accuracyMeters > 0 &&
+        accuracyMeters > _maxAcceptedRouteAccuracyMeters) {
+      return false;
+    }
+
     if (_routePoints.isEmpty) return true;
 
     final last = _routePoints.last;
 
-    return last.latitude != point.latitude ||
-        last.longitude != point.longitude ||
-        last.rideMode != point.rideMode;
+    if (last.rideMode != point.rideMode) {
+      return true;
+    }
+
+    final elapsedMs = point.timestampMs - last.timestampMs;
+
+    if (elapsedMs <= 0) {
+      return false;
+    }
+
+    final distanceMeters = Geolocator.distanceBetween(
+      last.latitude,
+      last.longitude,
+      point.latitude,
+      point.longitude,
+    );
+
+    if (distanceMeters < _minRecordedRouteStepMeters &&
+        elapsedMs < _maxRouteDuplicateHoldMs) {
+      return false;
+    }
+
+    final impliedSpeedKmph = distanceMeters / (elapsedMs / 1000.0) * 3.6;
+
+    if (distanceMeters > 5.0 &&
+        impliedSpeedKmph > _maxAcceptedRoutePointSpeedKmph) {
+      return false;
+    }
+
+    return distanceMeters >= _minRecordedRouteStepMeters ||
+        elapsedMs >= _maxRouteDuplicateHoldMs;
   }
 
   void _updateHeadingFromPosition(Position position, LatLng nextPoint) {
     double? nextHeading;
 
-    if (position.heading >= 0) {
-      nextHeading = position.heading;
-    } else if (_previousLatLngForBearing != null) {
-      final movementDistance = Geolocator.distanceBetween(
-        _previousLatLngForBearing!.latitude,
-        _previousLatLngForBearing!.longitude,
+    final previousPoint = _previousLatLngForBearing;
+    final reportedSpeedMps = position.speed.isFinite ? position.speed : -1.0;
+    final movingFromReportedSpeed =
+        reportedSpeedMps >= _minimumReliableHeadingSpeedMps;
+
+    var movementDistance = 0.0;
+
+    if (previousPoint != null) {
+      movementDistance = Geolocator.distanceBetween(
+        previousPoint.latitude,
+        previousPoint.longitude,
         nextPoint.latitude,
         nextPoint.longitude,
       );
+    }
 
-      if (movementDistance >= 0.6) {
-        nextHeading = _bearingBetween(_previousLatLngForBearing!, nextPoint);
+    final movingFromCoordinates =
+        movementDistance >= _minimumCoordinateBearingDistanceMeters;
+    final shouldUpdateHeading =
+        movingFromReportedSpeed || movingFromCoordinates;
+
+    if (shouldUpdateHeading) {
+      if (movingFromReportedSpeed &&
+          position.heading.isFinite &&
+          position.heading >= 0) {
+        nextHeading = position.heading;
+      } else if (previousPoint != null && movementDistance > 0) {
+        nextHeading = _bearingBetween(previousPoint, nextPoint);
       }
     }
 
@@ -674,6 +814,8 @@ class MapTrackingController extends ChangeNotifier {
       _hasReliableHeading = true;
     }
 
+    // At rest, no new heading is accepted. The marker therefore keeps the
+    // last reliable direction instead of snapping back to north.
     _previousLatLngForBearing = nextPoint;
   }
 

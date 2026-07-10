@@ -38,7 +38,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   late final AnimationController _recenterPulseController;
   late final Animation<double> _recenterPulseAnimation;
 
-  static const double _mapDragDisableFollowThresholdPx = 8.0;
+  static const double _mapDragDisableFollowThresholdPx = 16.0;
 
   int? _countdownValue;
   bool _manualReconnectPulse = false;
@@ -72,6 +72,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
     _mapTrackingController = MapTrackingController(
       onRoutePoint: _handleRoutePoint,
+      onGpsPoint: _handleGpsFallbackPoint,
       rideRouteModeProvider: _currentRideRouteMode,
     );
 
@@ -118,9 +119,12 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   void _handleRoutePoint(RideRoutePoint point) {
-    final rideController = widget.bikeConsoleController.rideSessionController;
-    rideController.handleRoutePoint(point);
-    rideController.handleGpsFallbackPoint(point);
+    widget.bikeConsoleController.rideSessionController.handleRoutePoint(point);
+  }
+
+  void _handleGpsFallbackPoint(RideRoutePoint point) {
+    widget.bikeConsoleController.rideSessionController
+        .handleGpsFallbackPoint(point);
   }
 
   String _blockedStartLabel() {
@@ -667,13 +671,11 @@ class _DashboardScreenState extends State<DashboardScreen>
                                 );
                               },
                               style: darkMapStyle,
-                              onCameraMoveStarted: () {
-                                _mapTrackingController.onUserMovedMap();
-                              },
                               myLocationEnabled: false,
                               myLocationButtonEnabled: false,
                               zoomControlsEnabled: false,
                               compassEnabled: false,
+                              buildingsEnabled: false,
                               rotateGesturesEnabled: true,
                               tiltGesturesEnabled: true,
                               padding: const EdgeInsets.only(bottom: 115),

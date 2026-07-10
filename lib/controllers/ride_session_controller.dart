@@ -29,9 +29,9 @@ class RideSessionController extends ChangeNotifier {
   static const double _gpsFallbackMinMovingSpeedMps = 0.6;
   static const double _gpsFallbackMinDistanceMeters = 0.8;
   static const double _gpsFallbackMaxReasonableSpeedKmph = 85.0;
-  static const int _gpsFallbackStaleMs = 2500;
-  static const int _gpsFallbackDisplayGraceMs = 3500;
-  static const int _gpsFallbackSpeedHoldMs = 3000;
+  static const int _gpsFallbackStaleMs = 5000;
+  static const int _gpsFallbackDisplayGraceMs = 7000;
+  static const int _gpsFallbackSpeedHoldMs = 5000;
   static const double _distanceToleranceKm = 0.003;
   static const double _distanceJumpGraceKm = 0.03;
   static const double _maxPlausibleDistanceSpeedKmph = 95.0;
@@ -91,10 +91,23 @@ class RideSessionController extends ChangeNotifier {
       _syncConsoleStateWithApp(force: true);
     } else {
       _lastIndicatorCommandEpochMs = null;
+
+      final shouldHoldMotionUntilGps =
+          _state.isRideActive && _state.currentSpeedKmph > 0;
+
+      if (shouldHoldMotionUntilGps) {
+        final nowEpochMs = DateTime.now().millisecondsSinceEpoch;
+        _lastGpsFallbackDisplaySpeedKmph = _state.currentSpeedKmph;
+        _lastGpsFallbackValidSpeedEpochMs = nowEpochMs;
+        _lastGpsFallbackMotionEpochMs = nowEpochMs;
+      }
+
       _state = _state.copyWith(
-        currentRpm: 0,
-        currentSpeedKmph: 0,
-        speedSource: SpeedSource.none,
+        currentRpm: shouldHoldMotionUntilGps ? _state.currentRpm : 0,
+        currentSpeedKmph:
+            shouldHoldMotionUntilGps ? _state.currentSpeedKmph : 0,
+        speedSource:
+            shouldHoldMotionUntilGps ? _state.speedSource : SpeedSource.none,
         leftPhysicalIndicator: false,
         rightPhysicalIndicator: false,
         leftOutputActive: false,
