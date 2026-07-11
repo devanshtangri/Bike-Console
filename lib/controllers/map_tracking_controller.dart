@@ -22,6 +22,9 @@ class MapTrackingController extends ChangeNotifier {
   static const double _minimumCoordinateBearingDistanceMeters = 4.0;
   static const double _followCameraDistanceThresholdMeters = 1.5;
   static const double _followCameraBearingThresholdDegrees = 1.0;
+  static const double _stationaryGpsSpeedThresholdMps = 0.8;
+  static const double _stationaryFollowDriftThresholdMeters = 12.0;
+  static const double _minimumVisualMovementMeters = 1.0;
   // Thirty camera updates per second remain visually smooth while avoiding
   // unnecessary 60 Hz native-map work. The larger interpolation factors retain
   // approximately the same easing speed as the former 16 ms loop.
@@ -503,7 +506,10 @@ class MapTrackingController extends ChangeNotifier {
     }
   }
 
-  Future<void> _maybeFollowUser(LatLng nextPoint) async {
+  Future<void> _maybeFollowUser(
+    LatLng nextPoint, {
+    required double gpsSpeedMps,
+  }) async {
     if (!_followUser || _mapController == null) {
       return;
     }
@@ -523,6 +529,17 @@ class MapTrackingController extends ChangeNotifier {
     final bearingChange = _lastFollowCameraBearing == null
         ? 360.0
         : _bearingDifference(_lastFollowCameraBearing!, _currentHeading).abs();
+
+    final hasUsableGpsSpeed = gpsSpeedMps.isFinite && gpsSpeedMps >= 0;
+    final appearsStationary =
+        hasUsableGpsSpeed && gpsSpeedMps < _stationaryGpsSpeedThresholdMps;
+
+    // Small stationary GPS drift should not keep moving the native map camera.
+    // A large displacement is still accepted so genuine relocation is not lost.
+    if (appearsStationary &&
+        distance < _stationaryFollowDriftThresholdMeters) {
+      return;
+    }
 
     if (distance >= _followCameraDistanceThresholdMeters ||
         bearingChange >= _followCameraBearingThresholdDegrees) {
@@ -704,9 +721,20 @@ class MapTrackingController extends ChangeNotifier {
       ),
     ).listen((position) async {
       final nextPoint = LatLng(position.latitude, position.longitude);
+      final previousVisualPoint = _currentLatLng;
+      final visualMovementMeters = previousVisualPoint == null
+          ? double.infinity
+          : Geolocator.distanceBetween(
+              previousVisualPoint.latitude,
+              previousVisualPoint.longitude,
+              nextPoint.latitude,
+              nextPoint.longitude,
+            );
 
       _updateHeadingFromPosition(position, nextPoint);
       _currentLatLng = nextPoint;
+
+      var routeVisualChanged = false;
 
       if (_trailRecordingEnabled) {
         final routePoint = RideRoutePoint(
@@ -728,6 +756,7 @@ class MapTrackingController extends ChangeNotifier {
 
           if (_shouldAppendRoutePoint(routePoint)) {
             _routePoints = [..._routePoints, routePoint];
+            routeVisualChanged = true;
             onRoutePoint?.call(routePoint);
           }
         }
@@ -737,7 +766,21 @@ class MapTrackingController extends ChangeNotifier {
         _displayHeading = _currentHeading;
       }
 
-      notifyListeners();
+      final hasUsableGpsSpeed =
+          position.speed.isFinite && position.speed >= 0;
+      final appearsToBeMoving = hasUsableGpsSpeed
+          ? position.speed >= _stationaryGpsSpeedThresholdMps
+          : visualMovementMeters >= _minimumVisualMovementMeters;
+
+      final shouldRefreshVisuals =
+          previousVisualPoint == null ||
+          appearsToBeMoving ||
+          visualMovementMeters >= _minimumVisualMovementMeters ||
+          routeVisualChanged;
+
+      if (shouldRefreshVisuals) {
+        notifyListeners();
+      }
 
       if (!_hasCenteredOnStartup && _mapController != null) {
         _hasCenteredOnStartup = true;
@@ -746,7 +789,10 @@ class MapTrackingController extends ChangeNotifier {
         return;
       }
 
-      await _maybeFollowUser(nextPoint);
+      await _maybeFollowUser(
+        nextPoint,
+        gpsSpeedMps: position.speed,
+      );
     });
   }
 
