@@ -216,7 +216,81 @@ class MapTrackingController extends ChangeNotifier {
     }
 
     _routePoints = List<RideRoutePoint>.unmodifiable(normalizedRoutePoints);
+    _restoreHeadingFromRouteIfNeeded();
     notifyListeners();
+  }
+
+  void _restoreHeadingFromRouteIfNeeded() {
+    if (_hasReliableHeading || _routePoints.length < 2) {
+      return;
+    }
+
+    // The map controller is recreated after process death, so its in-memory
+    // heading starts at north. Recover the most recent trustworthy travel
+    // direction from the restored route before the first stationary GPS fix.
+    for (var endIndex = _routePoints.length - 1;
+        endIndex > 0;
+        endIndex--) {
+      final to = _routePoints[endIndex];
+
+      for (var startIndex = endIndex - 1;
+          startIndex >= 0;
+          startIndex--) {
+        final from = _routePoints[startIndex];
+
+        if (from.rideMode != to.rideMode) {
+          break;
+        }
+
+        final elapsedMs = to.timestampMs - from.timestampMs;
+        if (elapsedMs <= 0) {
+          continue;
+        }
+
+        if (elapsedMs >= _maxRoutePolylineGapMs) {
+          break;
+        }
+
+        final distanceMeters = Geolocator.distanceBetween(
+          from.latitude,
+          from.longitude,
+          to.latitude,
+          to.longitude,
+        );
+
+        if (distanceMeters < _minimumCoordinateBearingDistanceMeters) {
+          continue;
+        }
+
+        if (distanceMeters >= _maxRoutePolylineJumpMeters) {
+          continue;
+        }
+
+        final impliedSpeedKmph =
+            distanceMeters / (elapsedMs / 1000.0) * 3.6;
+
+        if (impliedSpeedKmph > _maxAcceptedRoutePointSpeedKmph) {
+          continue;
+        }
+
+        final restoredHeading = _normalizeBearing(
+          _bearingBetween(_toLatLng(from), _toLatLng(to)),
+        );
+
+        _currentHeading = restoredHeading;
+        _displayHeading = restoredHeading;
+        _hasReliableHeading = true;
+        _lastFollowCameraBearing = restoredHeading;
+        _desiredFollowCameraBearing = restoredHeading;
+        _visualFollowCameraBearing = restoredHeading;
+        _previousLatLngForBearing = _toLatLng(_routePoints.last);
+        return;
+      }
+    }
+
+    // Even when there is not yet enough route movement to infer a heading,
+    // compare the next live fix against the latest restored point.
+    _previousLatLngForBearing = _toLatLng(_routePoints.last);
   }
 
   bool _sameRoutePointList(
