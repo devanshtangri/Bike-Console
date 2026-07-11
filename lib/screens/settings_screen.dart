@@ -29,6 +29,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       widget.bikeConsoleController.displaySettings.liteModeEnabled;
   bool get _hapticFeedbackEnabled =>
       widget.bikeConsoleController.displaySettings.hapticFeedbackEnabled;
+  bool get _threeDimensionalBuildingsEnabled => widget
+      .bikeConsoleController
+      .displaySettings
+      .threeDimensionalBuildingsEnabled;
 
   @override
   void initState() {
@@ -128,6 +132,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
 
     _showSnackBar(value ? "Lite Mode enabled" : "Lite Mode disabled");
+  }
+
+  Future<void> _setThreeDimensionalBuildingsEnabled(bool value) async {
+    AppHaptics.selectionClick();
+
+    await widget.bikeConsoleController.updateDisplaySettings(
+      widget.bikeConsoleController.displaySettings.copyWith(
+        threeDimensionalBuildingsEnabled: value,
+      ),
+    );
+
+    if (!mounted) return;
+
+    _showSnackBar(
+      value ? "3D buildings enabled" : "3D buildings disabled",
+    );
   }
 
   Future<void> _setHapticFeedbackEnabled(bool value) async {
@@ -798,6 +818,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   style: TextStyle(color: Colors.white38, height: 1.35),
                 ),
                 onChanged: _setLiteModeEnabled,
+              ),
+              const SizedBox(height: 2),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: _threeDimensionalBuildingsEnabled,
+                activeThumbColor: Colors.greenAccent,
+                activeTrackColor: Colors.greenAccent.withValues(alpha: 0.35),
+                title: const Text(
+                  "3D Buildings",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                subtitle: const Text(
+                  "Render extruded buildings on the tilted map. Turning this off may reduce graphics and battery usage.",
+                  style: TextStyle(color: Colors.white38, height: 1.35),
+                ),
+                onChanged: _setThreeDimensionalBuildingsEnabled,
               ),
             ],
           ),

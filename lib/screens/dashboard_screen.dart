@@ -563,8 +563,10 @@ class _DashboardScreenState extends State<DashboardScreen>
     final isConsoleConnected =
         widget.bikeConsoleController.connectionController.isConnected;
     final screenWidth = MediaQuery.of(context).size.width;
-    final liteMode =
-        widget.bikeConsoleController.displaySettings.liteModeEnabled;
+    final displaySettings = widget.bikeConsoleController.displaySettings;
+    final liteMode = displaySettings.liteModeEnabled;
+    final threeDimensionalBuildingsEnabled =
+        displaySettings.threeDimensionalBuildingsEnabled;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -660,6 +662,9 @@ class _DashboardScreenState extends State<DashboardScreen>
                             onPointerUp: _handleMapPointerEnd,
                             onPointerCancel: _handleMapPointerEnd,
                             child: GoogleMap(
+                              key: ValueKey(
+                                "dashboard-map-3d-$threeDimensionalBuildingsEnabled",
+                              ),
                               initialCameraPosition: const CameraPosition(
                                 target: LatLng(28.6139, 77.2090),
                                 zoom: MapTrackingController.navigationMapZoom,
@@ -675,7 +680,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                               myLocationButtonEnabled: false,
                               zoomControlsEnabled: false,
                               compassEnabled: false,
-                              buildingsEnabled: false,
+                              buildingsEnabled:
+                                  threeDimensionalBuildingsEnabled,
                               rotateGesturesEnabled: true,
                               tiltGesturesEnabled: true,
                               padding: const EdgeInsets.only(bottom: 115),

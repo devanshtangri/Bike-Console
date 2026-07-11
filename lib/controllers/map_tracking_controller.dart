@@ -365,11 +365,19 @@ class MapTrackingController extends ChangeNotifier {
   Future<void> attachMapController(GoogleMapController controller) async {
     _mapController = controller;
 
-    if (_currentLatLng != null && !_hasCenteredOnStartup) {
-      _hasCenteredOnStartup = true;
-      _followUser = true;
-      await _moveNavigationCameraTo(_currentLatLng!, animated: true);
+    final currentLocation = _currentLatLng;
+    if (currentLocation == null) {
+      return;
     }
+
+    final isFirstMapAttachment = !_hasCenteredOnStartup;
+    _hasCenteredOnStartup = true;
+    _followUser = true;
+
+    await _moveNavigationCameraTo(
+      currentLocation,
+      animated: isFirstMapAttachment,
+    );
   }
 
   void onUserMovedMap() {
