@@ -22,11 +22,13 @@ class MapTrackingController extends ChangeNotifier {
   static const double _minimumCoordinateBearingDistanceMeters = 4.0;
   static const double _followCameraDistanceThresholdMeters = 1.5;
   static const double _followCameraBearingThresholdDegrees = 1.0;
-  // Follow camera easing runs close to display refresh. The previous 80 ms
-  // timer looked stepped/jittery even though the GPS data itself was fine.
-  static const Duration _followCameraTickInterval = Duration(milliseconds: 16);
-  static const double _followCameraTargetLerp = 0.14;
-  static const double _followCameraBearingLerp = 0.16;
+  // Thirty camera updates per second remain visually smooth while avoiding
+  // unnecessary 60 Hz native-map work. The larger interpolation factors retain
+  // approximately the same easing speed as the former 16 ms loop.
+  static const Duration _followCameraTickInterval = Duration(milliseconds: 33);
+  static const double _followCameraTargetLerp = 0.27;
+  static const double _followCameraBearingLerp = 0.31;
+  static const int _followVisualNotifyIntervalMs = 200;
   static const double _followCameraSettleDistanceMeters = 0.12;
   static const double _followCameraBearingSettleDegrees = 0.35;
   static const double _followCameraSnapDistanceMeters = 180.0;
@@ -59,6 +61,7 @@ class MapTrackingController extends ChangeNotifier {
   bool _isProgrammaticCameraMove = false;
   bool _followCameraTickInFlight = false;
   int _ignoreCameraMoveStartedUntilMs = 0;
+  int _lastFollowVisualNotifyMs = 0;
 
   LatLng? _lastFollowCameraTarget;
   double? _lastFollowCameraBearing;
@@ -630,7 +633,16 @@ class MapTrackingController extends ChangeNotifier {
         ),
       );
 
-      notifyListeners();
+      // The dashboard listens to this controller. Rebuilding it for every
+      // native camera interpolation frame is unnecessary and expensive.
+      // Five visual notifications per second are enough to keep the marker
+      // aligned while the native map itself continues moving at 30 Hz.
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      if (nowMs - _lastFollowVisualNotifyMs >=
+          _followVisualNotifyIntervalMs) {
+        _lastFollowVisualNotifyMs = nowMs;
+        notifyListeners();
+      }
 
       final remainingDistance = Geolocator.distanceBetween(
         nextTarget.latitude,
@@ -650,6 +662,12 @@ class MapTrackingController extends ChangeNotifier {
         _visualFollowCameraBearing = desiredBearing;
         _displayHeading = desiredBearing;
         _stopFollowCameraTimer();
+
+        final nowMs = DateTime.now().millisecondsSinceEpoch;
+        if (nowMs != _lastFollowVisualNotifyMs) {
+          _lastFollowVisualNotifyMs = nowMs;
+          notifyListeners();
+        }
       }
     } finally {
       _followCameraTickInFlight = false;
