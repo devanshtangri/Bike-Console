@@ -8,6 +8,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../bike_data.dart';
 import '../controllers/map_tracking_controller.dart';
 import '../controllers/bike_console_controller.dart';
+import '../models/ride_models.dart';
 import '../models/ride_route_point.dart';
 import '../map_styles/dark_map_style.dart';
 import '../widgets/dashboard_stat_card.dart';
@@ -34,7 +35,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   late final VoidCallback bikeListener;
   late final MapTrackingController _mapTrackingController;
-  final RideStartGateService _rideStartGateService = const RideStartGateService();
+  final RideStartGateService _rideStartGateService =
+      const RideStartGateService();
   late final AnimationController _recenterPulseController;
   late final Animation<double> _recenterPulseAnimation;
 
@@ -123,8 +125,9 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   void _handleGpsFallbackPoint(RideRoutePoint point) {
-    widget.bikeConsoleController.rideSessionController
-        .handleGpsFallbackPoint(point);
+    widget.bikeConsoleController.rideSessionController.handleGpsFallbackPoint(
+      point,
+    );
   }
 
   String _blockedStartLabel() {
@@ -448,61 +451,121 @@ class _DashboardScreenState extends State<DashboardScreen>
     });
   }
 
-  Widget _buildDeviceConnectedBadge() {
+  bool _isGpsFallbackBadgeVisible(RideSessionState rideState) {
+    final rideHasStarted =
+        rideState.rideStartEpochMs != null &&
+        (rideState.rideState == RideState.running ||
+            rideState.rideState == RideState.paused);
+
+    return rideHasStarted &&
+        rideState.speedSource == SpeedSource.gpsFallback &&
+        !widget.bikeConsoleController.connectionController.isConnected;
+  }
+
+  Widget _buildDeviceStatusBadge(RideSessionState rideState) {
     final isConnected =
         widget.bikeConsoleController.connectionController.isConnected;
+    final showGpsFallback = _isGpsFallbackBadgeVisible(rideState);
+    final shouldPulse =
+        !isConnected && !showGpsFallback && _manualReconnectPulse;
+    final shouldShowSlash = !isConnected;
 
-    final shouldPulse = !isConnected && _manualReconnectPulse;
-    final shouldShowSlash = !isConnected && !_manualReconnectPulse;
+    final accentColor = showGpsFallback
+        ? const Color(0xFFFFC83D)
+        : isConnected
+        ? AppColors.premiumGreen
+        : Colors.white.withValues(alpha: 0.42);
 
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
       onTap: isConnected ? null : _forceConsoleReconnect,
-      child: Container(
-        width: 48,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+        width: showGpsFallback ? 148 : 48,
         height: 48,
         decoration: BoxDecoration(
-          color: const Color(0xFF181818).withValues(alpha: 0.72),
+          color: showGpsFallback
+              ? const Color(0xFF251F10).withValues(alpha: 0.90)
+              : const Color(0xFF181818).withValues(alpha: 0.72),
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: Colors.white.withValues(alpha: 0.12),
+            color: showGpsFallback
+                ? const Color(0xFFFFC83D).withValues(alpha: 0.30)
+                : Colors.white.withValues(alpha: 0.12),
             width: 1,
           ),
+          boxShadow: showGpsFallback
+              ? [
+                  BoxShadow(
+                    color: const Color(0xFFFFC83D).withValues(alpha: 0.10),
+                    blurRadius: 16,
+                  ),
+                ]
+              : null,
         ),
-        child: AnimatedBuilder(
-          animation: _recenterPulseAnimation,
-          builder: (context, child) {
-            final pulseValue = _recenterPulseAnimation.value;
-            final iconAlpha = shouldPulse
-                ? 0.42 + ((pulseValue - 0.55) / 0.45 * 0.18)
-                : 0.42;
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // The decoration border consumes one logical pixel on each side.
+            // Keep the collapsed icon area at 46 px so a 48 px badge cannot
+            // overflow by 2 px.
+            SizedBox(
+              width: showGpsFallback ? 46 : 46,
+              height: 46,
+              child: AnimatedBuilder(
+                animation: _recenterPulseAnimation,
+                builder: (context, child) {
+                  final pulseValue = _recenterPulseAnimation.value;
+                  final disconnectedAlpha = shouldPulse
+                      ? 0.42 + ((pulseValue - 0.55) / 0.45 * 0.18)
+                      : 0.42;
 
-            return Stack(
-              alignment: Alignment.center,
-              children: [
-                Icon(
-                  Icons.memory_rounded,
-                  color: isConnected
-                      ? AppColors.premiumGreen
-                      : Colors.white.withValues(alpha: iconAlpha),
-                  size: 25,
-                ),
-
-                if (shouldShowSlash)
-                  Transform.rotate(
-                    angle: -0.72,
-                    child: Container(
-                      width: 31,
-                      height: 2.4,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.48),
-                        borderRadius: BorderRadius.circular(4),
+                  return Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Icon(
+                        Icons.memory_rounded,
+                        color: showGpsFallback || isConnected
+                            ? accentColor
+                            : Colors.white.withValues(alpha: disconnectedAlpha),
+                        size: 25,
                       ),
+                      if (shouldShowSlash)
+                        Transform.rotate(
+                          angle: -0.72,
+                          child: Container(
+                            width: 31,
+                            height: 2.4,
+                            decoration: BoxDecoration(
+                              color: accentColor,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ),
+            if (showGpsFallback)
+              const Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(left: 2, right: 11),
+                  child: Text(
+                    "GPS FALLBACK",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Color(0xFFFFC83D),
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.35,
                     ),
                   ),
-              ],
-            );
-          },
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -694,7 +757,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                       Positioned(
                         top: 14,
                         left: 26,
-                        child: _buildDeviceConnectedBadge(),
+                        child: _buildDeviceStatusBadge(rideState),
                       ),
                       Positioned(
                         top: 14,
@@ -1040,7 +1103,8 @@ class _RideSetupSheet extends StatelessWidget {
                   child: ElevatedButton(
                     onPressed: firstMissing == null
                         ? () => Navigator.pop(context)
-                        : () => Navigator.pop(context, firstMissing.requirement),
+                        : () =>
+                              Navigator.pop(context, firstMissing.requirement),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: firstMissing == null
                           ? AppColors.premiumGreen
@@ -1066,10 +1130,7 @@ class _RideSetupSheet extends StatelessWidget {
 }
 
 class _RideSetupStepTile extends StatelessWidget {
-  const _RideSetupStepTile({
-    required this.item,
-    required this.isPrimaryAction,
-  });
+  const _RideSetupStepTile({required this.item, required this.isPrimaryAction});
 
   final RideStartGateItem item;
   final bool isPrimaryAction;
