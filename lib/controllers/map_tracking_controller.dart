@@ -228,14 +228,10 @@ class MapTrackingController extends ChangeNotifier {
     // The map controller is recreated after process death, so its in-memory
     // heading starts at north. Recover the most recent trustworthy travel
     // direction from the restored route before the first stationary GPS fix.
-    for (var endIndex = _routePoints.length - 1;
-        endIndex > 0;
-        endIndex--) {
+    for (var endIndex = _routePoints.length - 1; endIndex > 0; endIndex--) {
       final to = _routePoints[endIndex];
 
-      for (var startIndex = endIndex - 1;
-          startIndex >= 0;
-          startIndex--) {
+      for (var startIndex = endIndex - 1; startIndex >= 0; startIndex--) {
         final from = _routePoints[startIndex];
 
         if (from.rideMode != to.rideMode) {
@@ -266,8 +262,7 @@ class MapTrackingController extends ChangeNotifier {
           continue;
         }
 
-        final impliedSpeedKmph =
-            distanceMeters / (elapsedMs / 1000.0) * 3.6;
+        final impliedSpeedKmph = distanceMeters / (elapsedMs / 1000.0) * 3.6;
 
         if (impliedSpeedKmph > _maxAcceptedRoutePointSpeedKmph) {
           continue;
@@ -326,7 +321,8 @@ class MapTrackingController extends ChangeNotifier {
     final normalized = <RideRoutePoint>[];
 
     for (final point in sortedPoints) {
-      final key = '${point.timestampMs}:'
+      final key =
+          '${point.timestampMs}:'
           '${point.latitude.toStringAsFixed(7)}:'
           '${point.longitude.toStringAsFixed(7)}:'
           '${point.rideMode.name}:'
@@ -340,9 +336,7 @@ class MapTrackingController extends ChangeNotifier {
     return _removeIsolatedRouteSpikes(normalized);
   }
 
-  List<RideRoutePoint> _removeIsolatedRouteSpikes(
-    List<RideRoutePoint> points,
-  ) {
+  List<RideRoutePoint> _removeIsolatedRouteSpikes(List<RideRoutePoint> points) {
     if (points.length < 3) {
       return points;
     }
@@ -610,8 +604,7 @@ class MapTrackingController extends ChangeNotifier {
 
     // Small stationary GPS drift should not keep moving the native map camera.
     // A large displacement is still accepted so genuine relocation is not lost.
-    if (appearsStationary &&
-        distance < _stationaryFollowDriftThresholdMeters) {
+    if (appearsStationary && distance < _stationaryFollowDriftThresholdMeters) {
       return;
     }
 
@@ -686,11 +679,7 @@ class MapTrackingController extends ChangeNotifier {
           distanceToDesired <= _followCameraSettleDistanceMeters ||
               distanceToDesired >= _followCameraSnapDistanceMeters
           ? desiredTarget
-          : _lerpLatLng(
-              currentTarget,
-              desiredTarget,
-              _followCameraTargetLerp,
-            );
+          : _lerpLatLng(currentTarget, desiredTarget, _followCameraTargetLerp);
 
       final currentBearing = _visualFollowCameraBearing ?? desiredBearing;
       final bearingToDesired = _bearingDifference(
@@ -698,8 +687,8 @@ class MapTrackingController extends ChangeNotifier {
         desiredBearing,
       );
 
-      final nextBearing = bearingToDesired.abs() <=
-              _followCameraBearingSettleDegrees
+      final nextBearing =
+          bearingToDesired.abs() <= _followCameraBearingSettleDegrees
           ? desiredBearing
           : _normalizeBearing(
               currentBearing + (bearingToDesired * _followCameraBearingLerp),
@@ -709,9 +698,7 @@ class MapTrackingController extends ChangeNotifier {
       _visualFollowCameraBearing = nextBearing;
       _displayHeading = nextBearing;
 
-      _ignoreProgrammaticCameraMoveStartedFor(
-        const Duration(milliseconds: 90),
-      );
+      _ignoreProgrammaticCameraMoveStartedFor(const Duration(milliseconds: 90));
 
       await _mapController!.moveCamera(
         CameraUpdate.newCameraPosition(
@@ -729,8 +716,7 @@ class MapTrackingController extends ChangeNotifier {
       // Five visual notifications per second are enough to keep the marker
       // aligned while the native map itself continues moving at 30 Hz.
       final nowMs = DateTime.now().millisecondsSinceEpoch;
-      if (nowMs - _lastFollowVisualNotifyMs >=
-          _followVisualNotifyIntervalMs) {
+      if (nowMs - _lastFollowVisualNotifyMs >= _followVisualNotifyIntervalMs) {
         _lastFollowVisualNotifyMs = nowMs;
         notifyListeners();
       }
@@ -787,87 +773,85 @@ class MapTrackingController extends ChangeNotifier {
 
     _currentLocationIcon = await _createCurrentLocationIcon();
 
-    _positionSubscription = Geolocator.getPositionStream(
-      locationSettings: AndroidSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 0,
-        intervalDuration: const Duration(seconds: 1),
-      ),
-    ).listen((position) async {
-      final nextPoint = LatLng(position.latitude, position.longitude);
-      final previousVisualPoint = _currentLatLng;
-      final visualMovementMeters = previousVisualPoint == null
-          ? double.infinity
-          : Geolocator.distanceBetween(
-              previousVisualPoint.latitude,
-              previousVisualPoint.longitude,
-              nextPoint.latitude,
-              nextPoint.longitude,
+    _positionSubscription =
+        Geolocator.getPositionStream(
+          locationSettings: AndroidSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 0,
+            intervalDuration: const Duration(seconds: 1),
+          ),
+        ).listen((position) async {
+          final nextPoint = LatLng(position.latitude, position.longitude);
+          final previousVisualPoint = _currentLatLng;
+          final visualMovementMeters = previousVisualPoint == null
+              ? double.infinity
+              : Geolocator.distanceBetween(
+                  previousVisualPoint.latitude,
+                  previousVisualPoint.longitude,
+                  nextPoint.latitude,
+                  nextPoint.longitude,
+                );
+
+          _updateHeadingFromPosition(position, nextPoint);
+          _currentLatLng = nextPoint;
+
+          var routeVisualChanged = false;
+
+          if (_trailRecordingEnabled) {
+            final routePoint = RideRoutePoint(
+              latitude: position.latitude,
+              longitude: position.longitude,
+              timestampMs: DateTime.now().millisecondsSinceEpoch,
+              accuracyMeters: position.accuracy,
+              gpsSpeedMps: position.speed.isFinite && position.speed > 0
+                  ? position.speed
+                  : 0,
+              rideMode: rideRouteModeProvider?.call() ?? RideRouteMode.running,
+              source: RideRoutePointSource.gps,
             );
 
-      _updateHeadingFromPosition(position, nextPoint);
-      _currentLatLng = nextPoint;
+            if (routePoint.isValid) {
+              // GPS fallback needs every valid position update, including repeated
+              // coordinates. Route storage can still apply its stricter filter.
+              onGpsPoint?.call(routePoint);
 
-      var routeVisualChanged = false;
-
-      if (_trailRecordingEnabled) {
-        final routePoint = RideRoutePoint(
-          latitude: position.latitude,
-          longitude: position.longitude,
-          timestampMs: DateTime.now().millisecondsSinceEpoch,
-          accuracyMeters: position.accuracy,
-          gpsSpeedMps: position.speed.isFinite && position.speed > 0
-              ? position.speed
-              : 0,
-          rideMode: rideRouteModeProvider?.call() ?? RideRouteMode.running,
-          source: RideRoutePointSource.gps,
-        );
-
-        if (routePoint.isValid) {
-          // GPS fallback needs every valid position update, including repeated
-          // coordinates. Route storage can still apply its stricter filter.
-          onGpsPoint?.call(routePoint);
-
-          if (_shouldAppendRoutePoint(routePoint)) {
-            _routePoints = [..._routePoints, routePoint];
-            routeVisualChanged = true;
-            onRoutePoint?.call(routePoint);
+              if (_shouldAppendRoutePoint(routePoint)) {
+                _routePoints = [..._routePoints, routePoint];
+                routeVisualChanged = true;
+                onRoutePoint?.call(routePoint);
+              }
+            }
           }
-        }
-      }
 
-      if (!_followUser) {
-        _displayHeading = _currentHeading;
-      }
+          if (!_followUser) {
+            _displayHeading = _currentHeading;
+          }
 
-      final hasUsableGpsSpeed =
-          position.speed.isFinite && position.speed >= 0;
-      final appearsToBeMoving = hasUsableGpsSpeed
-          ? position.speed >= _stationaryGpsSpeedThresholdMps
-          : visualMovementMeters >= _minimumVisualMovementMeters;
+          final hasUsableGpsSpeed =
+              position.speed.isFinite && position.speed >= 0;
+          final appearsToBeMoving = hasUsableGpsSpeed
+              ? position.speed >= _stationaryGpsSpeedThresholdMps
+              : visualMovementMeters >= _minimumVisualMovementMeters;
 
-      final shouldRefreshVisuals =
-          previousVisualPoint == null ||
-          appearsToBeMoving ||
-          visualMovementMeters >= _minimumVisualMovementMeters ||
-          routeVisualChanged;
+          final shouldRefreshVisuals =
+              previousVisualPoint == null ||
+              appearsToBeMoving ||
+              visualMovementMeters >= _minimumVisualMovementMeters ||
+              routeVisualChanged;
 
-      if (shouldRefreshVisuals) {
-        notifyListeners();
-      }
+          if (shouldRefreshVisuals) {
+            notifyListeners();
+          }
 
-      if (!_hasCenteredOnStartup && _mapController != null) {
-        _hasCenteredOnStartup = true;
-        _followUser = true;
-        await _moveNavigationCameraTo(nextPoint, animated: true);
-        return;
-      }
+          if (!_hasCenteredOnStartup && _mapController != null) {
+            _hasCenteredOnStartup = true;
+            _followUser = true;
+            await _moveNavigationCameraTo(nextPoint, animated: true);
+            return;
+          }
 
-      await _maybeFollowUser(
-        nextPoint,
-        gpsSpeedMps: position.speed,
-      );
-    });
+          await _maybeFollowUser(nextPoint, gpsSpeedMps: position.speed);
+        });
   }
 
   bool _shouldAppendRoutePoint(RideRoutePoint point) {
