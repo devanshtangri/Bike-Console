@@ -39,6 +39,8 @@ class MapTrackingController extends ChangeNotifier {
   static const double _maxRoutePolylineSpeedKmph = 72.0;
   static const double _maxRoutePolylineJumpMeters = 280.0;
   static const double _maxAcceptedRouteAccuracyMeters = 45.0;
+  static const int _maxAcceptedLocationAgeMs = 15000;
+  static const int _maxAcceptedLocationFutureSkewMs = 5000;
   static const double _minRecordedRouteStepMeters = 1.0;
   static const int _maxRouteDuplicateHoldMs = 5000;
   static const double _maxAcceptedRoutePointSpeedKmph = 72.0;
@@ -781,6 +783,16 @@ class MapTrackingController extends ChangeNotifier {
             intervalDuration: const Duration(seconds: 1),
           ),
         ).listen((position) async {
+          final nowEpochMs = DateTime.now().millisecondsSinceEpoch;
+          final providerTimestampMs = position.timestamp.millisecondsSinceEpoch;
+          final routeTimestampMs = providerTimestampMs > 0
+              ? providerTimestampMs
+              : nowEpochMs;
+          final locationAgeMs = nowEpochMs - routeTimestampMs;
+          final hasFreshRouteTimestamp =
+              locationAgeMs <= _maxAcceptedLocationAgeMs &&
+              locationAgeMs >= -_maxAcceptedLocationFutureSkewMs;
+
           final nextPoint = LatLng(position.latitude, position.longitude);
           final previousVisualPoint = _currentLatLng;
           final visualMovementMeters = previousVisualPoint == null
@@ -797,11 +809,11 @@ class MapTrackingController extends ChangeNotifier {
 
           var routeVisualChanged = false;
 
-          if (_trailRecordingEnabled) {
+          if (_trailRecordingEnabled && hasFreshRouteTimestamp) {
             final routePoint = RideRoutePoint(
               latitude: position.latitude,
               longitude: position.longitude,
-              timestampMs: DateTime.now().millisecondsSinceEpoch,
+              timestampMs: routeTimestampMs,
               accuracyMeters: position.accuracy,
               gpsSpeedMps: position.speed.isFinite && position.speed > 0
                   ? position.speed

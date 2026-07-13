@@ -59,8 +59,12 @@ class RideTrackingService : Service() {
         private const val NOTIFICATION_ID = 1207
 
         private const val MAX_NATIVE_ROUTE_POINTS = 20000
-        private const val MAX_ACCEPTED_ACCURACY_METERS = 80.0
-        private const val MAX_REASONABLE_GPS_SEGMENT_METERS = 140.0
+        private const val MAX_ACCEPTED_ACCURACY_METERS = 45.0
+        private const val MAX_LOCATION_AGE_MS = 15000L
+        private const val MAX_LOCATION_FUTURE_SKEW_MS = 5000L
+        private const val MIN_SPEED_FILTER_DISTANCE_METERS = 5.0
+        private const val MAX_REASONABLE_GPS_SPEED_KMPH = 85.0
+        private const val ROUTE_SNAPSHOT_PERSIST_INTERVAL_MS = 2000L
 
         // If Flutter has not updated the service recently, assume the UI/engine
         // is detached and allow native GPS distance to act as the fallback.
@@ -93,6 +97,7 @@ class RideTrackingService : Service() {
     private var lastFlutterUpdateEpochMs: Long? = null
     private var lastAcceptedNativeRoutePoint: NativeRoutePoint? = null
     private val nativeRoutePoints = mutableListOf<NativeRoutePoint>()
+    private var lastSnapshotPersistRealtimeMs = 0L
 
     private var locationManager: LocationManager? = null
     private val notificationHandler = Handler(Looper.getMainLooper())
@@ -160,6 +165,7 @@ class RideTrackingService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         // Keep the foreground ride alive when the Flutter activity is removed from Recents.
+        persistActiveSnapshot()
         updateForegroundNotification()
         scheduleNotificationTickerIfNeeded()
         super.onTaskRemoved(rootIntent)
@@ -226,6 +232,7 @@ class RideTrackingService : Service() {
         if (!foregroundStarted) {
             nativeRoutePoints.clear()
             lastAcceptedNativeRoutePoint = null
+            lastSnapshotPersistRealtimeMs = 0L
             flutterDistanceKm = distanceKm
             nativeGpsDistanceKm = distanceKm
             lastFlutterUpdateRealtimeMs = SystemClock.elapsedRealtime()
@@ -420,6 +427,20 @@ class RideTrackingService : Service() {
         if (!foregroundStarted) return
         if (location.latitude !in -90.0..90.0 || location.longitude !in -180.0..180.0) return
 
+        val nowEpochMs = System.currentTimeMillis()
+        val providerTimestampMs = if (location.time > 0L) {
+            location.time
+        } else {
+            nowEpochMs
+        }
+        val locationAgeMs = nowEpochMs - providerTimestampMs
+
+        if (locationAgeMs > MAX_LOCATION_AGE_MS ||
+            locationAgeMs < -MAX_LOCATION_FUTURE_SKEW_MS
+        ) {
+            return
+        }
+
         val accuracy = if (location.hasAccuracy()) {
             location.accuracy.toDouble().coerceAtLeast(0.0)
         } else {
@@ -440,7 +461,7 @@ class RideTrackingService : Service() {
         val point = NativeRoutePoint(
             latitude = location.latitude,
             longitude = location.longitude,
-            timestampMs = System.currentTimeMillis(),
+            timestampMs = providerTimestampMs,
             accuracyMeters = accuracy,
             gpsSpeedMps = gpsSpeed,
             rideMode = mode,
@@ -456,10 +477,23 @@ class RideTrackingService : Service() {
             return
         }
 
-        if (last != null && !paused) {
-            val segmentMeters = distanceBetweenMeters(last, point)
+        if (last != null) {
+            val elapsedMs = point.timestampMs - last.timestampMs
 
-            if (segmentMeters in 0.0..MAX_REASONABLE_GPS_SEGMENT_METERS) {
+            if (elapsedMs <= 0L) {
+                return
+            }
+
+            val segmentMeters = distanceBetweenMeters(last, point)
+            val impliedSpeedKmph = segmentMeters / (elapsedMs / 1000.0) * 3.6
+
+            if (segmentMeters > MIN_SPEED_FILTER_DISTANCE_METERS &&
+                impliedSpeedKmph > MAX_REASONABLE_GPS_SPEED_KMPH
+            ) {
+                return
+            }
+
+            if (!paused) {
                 nativeGpsDistanceKm += segmentMeters / 1000.0
                 refreshDistanceAuthority()
             }
@@ -471,10 +505,13 @@ class RideTrackingService : Service() {
             nativeRoutePoints.removeAt(0)
         }
 
+        // A rejected point never reaches this line, so it can never become
+        // the baseline used to validate the next location.
         lastAcceptedNativeRoutePoint = point
 
-        persistActiveSnapshot()
-        updateForegroundNotification()
+        // The notification already has its own one-second ticker. Persist the
+        // growing route less aggressively to avoid rewriting the full JSON every fix.
+        persistActiveSnapshot(force = false)
     }
 
     private fun distanceBetweenMeters(from: NativeRoutePoint, to: NativeRoutePoint): Double {
@@ -491,8 +528,18 @@ class RideTrackingService : Service() {
         return result.firstOrNull()?.toDouble() ?: 0.0
     }
 
-    private fun persistActiveSnapshot() {
+    private fun persistActiveSnapshot(force: Boolean = true) {
         if (!foregroundStarted) return
+
+        val nowRealtimeMs = SystemClock.elapsedRealtime()
+
+        if (!force &&
+            lastSnapshotPersistRealtimeMs > 0L &&
+            nowRealtimeMs - lastSnapshotPersistRealtimeMs <
+                ROUTE_SNAPSHOT_PERSIST_INTERVAL_MS
+        ) {
+            return
+        }
 
         refreshDistanceAuthority()
         val snapshotJson = buildActiveSnapshotJson()
@@ -501,6 +548,8 @@ class RideTrackingService : Service() {
             .edit()
             .putString(SNAPSHOT_JSON_KEY, snapshotJson)
             .apply()
+
+        lastSnapshotPersistRealtimeMs = nowRealtimeMs
     }
 
     private fun clearActiveSnapshot() {
@@ -508,6 +557,8 @@ class RideTrackingService : Service() {
             .edit()
             .remove(SNAPSHOT_JSON_KEY)
             .apply()
+
+        lastSnapshotPersistRealtimeMs = 0L
     }
 
     private fun buildActiveSnapshotJson(): String {
@@ -671,26 +722,34 @@ class RideTrackingService : Service() {
 
         if (!hasFineLocation && !hasCoarseLocation) return
 
+        // Pause/resume can call this repeatedly. Remove the old registration first
+        // so one listener is never registered more than once.
+        stopLocationUpdates()
+
         try {
-            if (manager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                manager.requestLocationUpdates(
-                    LocationManager.GPS_PROVIDER,
-                    1000L,
-                    0f,
-                    locationListener,
-                    Looper.getMainLooper(),
-                )
+            val provider = when {
+                manager.isProviderEnabled(LocationManager.GPS_PROVIDER) ->
+                    LocationManager.GPS_PROVIDER
+                manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) ->
+                    LocationManager.NETWORK_PROVIDER
+                else -> null
+            } ?: return
+
+            val intervalMs = if (provider == LocationManager.GPS_PROVIDER) {
+                1000L
+            } else {
+                1500L
             }
 
-            if (manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                manager.requestLocationUpdates(
-                    LocationManager.NETWORK_PROVIDER,
-                    1500L,
-                    0f,
-                    locationListener,
-                    Looper.getMainLooper(),
-                )
-            }
+            // Do not mix GPS and network fixes into the same route. Network
+            // location is used only when the GPS provider itself is unavailable.
+            manager.requestLocationUpdates(
+                provider,
+                intervalMs,
+                0f,
+                locationListener,
+                Looper.getMainLooper(),
+            )
         } catch (_: SecurityException) {
             // Permission changed while service was running.
         } catch (_: IllegalArgumentException) {

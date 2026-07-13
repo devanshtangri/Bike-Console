@@ -36,6 +36,10 @@ class RideSessionController extends ChangeNotifier {
   static const double _distanceJumpGraceKm = 0.03;
   static const double _maxPlausibleDistanceSpeedKmph = 95.0;
   static const int _manualDistanceCorrectionHoldMs = 7000;
+  static const double _restoredRouteMaxAccuracyMeters = 45.0;
+  static const double _restoredRouteMaxSpeedKmph = 85.0;
+  static const double _restoredRouteSpeedCheckMinDistanceMeters = 5.0;
+  static const int _restoredRouteOverlapWindowMs = 5000;
 
   RideSessionState _state = RideSessionState.initial();
   RideSettings _settings = RideSettings.defaults();
@@ -237,15 +241,10 @@ class RideSessionController extends ChangeNotifier {
     if (snapshot.rideState == RideState.stopped) return;
 
     final snapshotState = snapshot.toSessionState();
-    final currentRoutePoints = _state.routePoints;
-    final snapshotRoutePoints = snapshotState.routePoints;
-
-    final shouldUseSnapshotRoute =
-        snapshotRoutePoints.length > currentRoutePoints.length;
-
-    final nextRoutePoints = shouldUseSnapshotRoute
-        ? snapshotRoutePoints
-        : currentRoutePoints;
+    final nextRoutePoints = _mergeRestoredRoutePoints(
+      currentRoutePoints: _state.routePoints,
+      snapshotRoutePoints: snapshotState.routePoints,
+    );
 
     final nextDistanceKm = _resolveForegroundSnapshotDistance(
       snapshotState.distanceKm,
@@ -1173,6 +1172,143 @@ class RideSessionController extends ChangeNotifier {
     _lastAcceptedWheelDistanceEpochMs = epochMs;
     _manualDistanceCorrectionKm = null;
     _manualDistanceCorrectionEpochMs = null;
+  }
+
+  List<RideRoutePoint> _mergeRestoredRoutePoints({
+    required List<RideRoutePoint> currentRoutePoints,
+    required List<RideRoutePoint> snapshotRoutePoints,
+  }) {
+    final preferredRoute = _sanitizeRestoredRoute(currentRoutePoints);
+    final backgroundRoute = _sanitizeRestoredRoute(snapshotRoutePoints);
+
+    if (preferredRoute.isEmpty) {
+      return backgroundRoute;
+    }
+
+    if (backgroundRoute.isEmpty) {
+      return preferredRoute;
+    }
+
+    final preferredTimestamps = preferredRoute
+        .map((point) => point.timestampMs)
+        .toList(growable: false);
+
+    final merged = <RideRoutePoint>[...preferredRoute];
+
+    for (final point in backgroundRoute) {
+      final overlapsPreferredTimeline = _hasNearbyRouteTimestamp(
+        preferredTimestamps,
+        point.timestampMs,
+        _restoredRouteOverlapWindowMs,
+      );
+
+      if (!overlapsPreferredTimeline) {
+        merged.add(point);
+      }
+    }
+
+    return _sanitizeRestoredRoute(merged);
+  }
+
+  List<RideRoutePoint> _sanitizeRestoredRoute(
+    List<RideRoutePoint> routePoints,
+  ) {
+    final candidates = routePoints.where((point) {
+      if (!point.isValid || point.timestampMs <= 0) {
+        return false;
+      }
+
+      final accuracyMeters = point.accuracyMeters;
+      if (!accuracyMeters.isFinite) {
+        return false;
+      }
+
+      return accuracyMeters <= 0 ||
+          accuracyMeters <= _restoredRouteMaxAccuracyMeters;
+    }).toList();
+
+    candidates.sort((a, b) {
+      final timestampComparison = a.timestampMs.compareTo(b.timestampMs);
+      if (timestampComparison != 0) {
+        return timestampComparison;
+      }
+
+      final aAccuracy = a.accuracyMeters > 0
+          ? a.accuracyMeters
+          : double.infinity;
+      final bAccuracy = b.accuracyMeters > 0
+          ? b.accuracyMeters
+          : double.infinity;
+
+      return aAccuracy.compareTo(bAccuracy);
+    });
+
+    final accepted = <RideRoutePoint>[];
+    final seen = <String>{};
+
+    for (final point in candidates) {
+      final key =
+          '${point.timestampMs}:'
+          '${point.latitude.toStringAsFixed(7)}:'
+          '${point.longitude.toStringAsFixed(7)}:'
+          '${point.rideMode.name}:'
+          '${point.source.name}';
+
+      if (!seen.add(key)) {
+        continue;
+      }
+
+      if (accepted.isEmpty) {
+        accepted.add(point);
+        continue;
+      }
+
+      final last = accepted.last;
+      final elapsedMs = point.timestampMs - last.timestampMs;
+
+      if (elapsedMs <= 0) {
+        continue;
+      }
+
+      final distanceMeters = _distanceBetweenRoutePointsMeters(last, point);
+      final impliedSpeedKmph = distanceMeters / (elapsedMs / 1000.0) * 3.6;
+
+      if (distanceMeters > _restoredRouteSpeedCheckMinDistanceMeters &&
+          impliedSpeedKmph > _restoredRouteMaxSpeedKmph) {
+        continue;
+      }
+
+      accepted.add(point);
+    }
+
+    return accepted;
+  }
+
+  bool _hasNearbyRouteTimestamp(
+    List<int> sortedTimestamps,
+    int timestampMs,
+    int windowMs,
+  ) {
+    var low = 0;
+    var high = sortedTimestamps.length;
+
+    while (low < high) {
+      final middle = low + ((high - low) >> 1);
+
+      if (sortedTimestamps[middle] < timestampMs) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+
+    if (low < sortedTimestamps.length &&
+        (sortedTimestamps[low] - timestampMs).abs() <= windowMs) {
+      return true;
+    }
+
+    return low > 0 &&
+        (sortedTimestamps[low - 1] - timestampMs).abs() <= windowMs;
   }
 
   double _distanceBetweenRoutePointsMeters(
